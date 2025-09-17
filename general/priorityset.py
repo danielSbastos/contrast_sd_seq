@@ -102,9 +102,9 @@ class PrioritySet(object):
         self.set = set()
         self.theta = theta
 
-    def add(self, sequence, wracc, extend):
+    def add(self, sequence, wracc, extend, rocauc):
         if sequence not in self.set:
-            heapq.heappush(self.heap, (wracc, sequence, extend))
+            heapq.heappush(self.heap, (wracc, sequence, extend, rocauc))
             self.set.add(sequence)
 
     def add_preserve_memory(self, sequence, wracc, data):

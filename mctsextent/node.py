@@ -24,7 +24,7 @@ class Node():
         self.node_hashmap = node_hashmap
 
         # the extend is the id of sequences
-        self.quality, self.extend_positive = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
+        self.quality, self.rocauc, self.extend_positive = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
 
         if parent != None:
             self.parents = [parent]
@@ -52,7 +52,7 @@ class Node():
 
     def get_extend_and_quality(self, data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
         if self.intent == None:
-            return 0, []
+            return 0, 1, []
         return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
 
     def compute_sequence_expand(self, data_positive):

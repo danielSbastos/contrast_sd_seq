@@ -231,7 +231,7 @@ def print_results(results):
 
         sum_result += result[0]
 
-        print('Quality: {}, Extent: {}, Pattern: {}'.format(result[0], result[2], pattern_display))
+        print('Quality: {}, Extent: {}, ROCAUC: {}, Pattern: {}'.format(result[0], result[2], result[3], pattern_display))
 
     print('Average score :{}'.format(sum_result / len(results)))
 
@@ -276,6 +276,7 @@ def print_results_decode(results, encoding_to_items):
         decoded_result.append(result[0])
         decoded_result.append(decode_sequence(result[1], encoding_to_items))
         decoded_result.append(len(result[2]))
+        decoded_result.append(result[3])
         decoded_results.append(decoded_result)
 
     print_results(decoded_results)
@@ -302,8 +303,10 @@ def get_quality(quality_measure, class_pattern_count, support, data, class_data_
         confidences = list(map(lambda x: x[1], extend_target_class))
         rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = [1, 2, 3, 4, 5, 6])
         if np.isnan(rocauc):
-            return -float('inf')
-        return ModelRocAuc.get() - rocauc
+            return -1, 1
+        #if len(extend) >= (len(data) * 0.1):
+        #    import pdb;pdb.set_trace()
+        return ModelRocAuc.get() - rocauc, rocauc
 
     elif quality_measure == 'WRAcc':
         # we find the number of elements who have the right target_class
@@ -402,7 +405,7 @@ def compute_quality(data, subsequence, target_class, quality_measure=conf.QUALIT
             extend.append(i)
     
     extend_target_class = target_class[extend]
-    return get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)
+    return get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)[0]
 
 
 def compute_quality_extend(data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
@@ -423,8 +426,8 @@ def compute_quality_extend(data, subsequence, target_class, quality_measure=conf
             extend.append(i)
 
     extend_target_class = target_class[extend]
-
-    return get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class), extend
+    quality, rocauc = get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)
+    return quality, rocauc, extend
 
 
 import seqscout.global_var

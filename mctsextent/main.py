@@ -35,7 +35,7 @@ def best_child(node):
     for child in node.children:
         current_ucb = child.get_normalized_quality(conf.QUALITY_MEASURE) / child.number_visits + 0.5 * math.sqrt(
             2 * math.log(node.number_visits) / child.number_visits)
-
+        
         if current_ucb > max_score and not child.is_dead_end():
             max_score = current_ucb
             best_node = child
@@ -144,6 +144,8 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
 
     results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta,
                           iterations_limit=2 ** 30)
+    
+    print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
 
     return decode_sequences(results, encoding_to_items)
@@ -173,13 +175,13 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         node_expand = node_sel.expand(data, data_positive, log_losses, target_class, quality_measure=quality_measure)
 
-        if len(node_expand.extend_positive) > (len(data) * 0.1):
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive)
+        if len(node_expand.extend_positive) > (len(data) * 0.2):
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
-        if len(node_expand.extend_positive) > (len(data) * 0.1):
-            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, node_expand.extend_positive) # esse extend está errado?
+        if len(node_expand.extend_positive) > (len(data) * 0.2):
+            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, node_expand.extend_positive, node_expand.rocauc) # esse extend está errado?
 
         update(node_expand, reward)
         iteration_count += 1

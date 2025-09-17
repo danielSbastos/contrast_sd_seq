@@ -12,7 +12,8 @@ from torch.nn.utils.rnn import pad_sequence
 from sklearn.metrics import classification_report, accuracy_score
 
 file_name = './data/figures_rc.dat'
-file_name = './data/skating.data'
+file_name = './data/context.data'
+#file_name = './data/skating.data'
 
 def build_vocab(filepath):
     classes = set()
@@ -81,7 +82,7 @@ model = FlatLSTMClassifier(vocab_size=len(vocab), emb_dim=32, hidden_dim=64, num
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 8
+num_epochs = 15
 
 print("Starting training... 🚀")
 model.train()
