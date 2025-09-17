@@ -31,9 +31,6 @@ def build_vocab(filepath):
     event2id["<PAD>"] = 0
     event2id["<SEP>"] = 1
 
-    print(pd.Series(classes_list).value_counts())
-    print(pd.Series(classes_list).value_counts(normalize=True))
-
     return event2id, classes
 
 vocab, classes = build_vocab(file_name)

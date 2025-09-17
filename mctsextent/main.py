@@ -89,8 +89,6 @@ def roll_out(node, data, target_class, quality_measure=conf.QUALITY_MEASURE):
             sequence.pop(chosen_itemset_i)
 
     reward = compute_quality(data, sequence, target_class, quality_measure=quality_measure)
-    import pdb;pdb.set_trace()
-
     return sequence, reward
 
 
@@ -156,11 +154,11 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
-    data_positive = filter_positive(data, target_class) # does not filter anything in EMM
+    data_positive, log_losses = filter_positive(data, target_class) # does not filter anything in EMM
     data = filter_empty_sequences(data)
 
     node_hashmap = {}
-    root_node = Node(None, None, data, data_positive, target_class, node_hashmap)
+    root_node = Node(None, None, data, data_positive, log_losses, target_class, node_hashmap)
     node_hashmap[('.')] = root_node
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
@@ -173,12 +171,15 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand = node_sel.expand(data, data_positive, target_class, quality_measure=quality_measure)
-        sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality)
+        node_expand = node_sel.expand(data, data_positive, log_losses, target_class, quality_measure=quality_measure)
+
+        if len(node_expand.extend_positive) > (len(data) * 0.1):
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
-        sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward)
+        if len(node_expand.extend_positive) > (len(data) * 0.1):
+            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, node_expand.extend_positive) # esse extend está errado?
 
         update(node_expand, reward)
         iteration_count += 1

@@ -3,7 +3,7 @@ import copy
 import general.conf as conf
 
 import numpy as np
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, log_loss
 
 def increase_it_number():
     global ITERATION_NUMBER
@@ -231,7 +231,7 @@ def print_results(results):
 
         sum_result += result[0]
 
-        print('Quality: {}, Pattern: {}'.format(result[0], pattern_display))
+        print('Quality: {}, Extent: {}, Pattern: {}'.format(result[0], result[2], pattern_display))
 
     print('Average score :{}'.format(sum_result / len(results)))
 
@@ -275,6 +275,7 @@ def print_results_decode(results, encoding_to_items):
         decoded_result = []
         decoded_result.append(result[0])
         decoded_result.append(decode_sequence(result[1], encoding_to_items))
+        decoded_result.append(len(result[2]))
         decoded_results.append(decoded_result)
 
     print_results(decoded_results)
@@ -299,9 +300,6 @@ def get_quality(quality_measure, class_pattern_count, support, data, class_data_
     if quality_measure == 'ROCAUC':
         y_trues = list(map(lambda x: x[0], extend_target_class))
         confidences = list(map(lambda x: x[1], extend_target_class))
-        print(y_trues)
-        print(confidences)
-        print(len(set(y_trues)))
         rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = [1, 2, 3, 4, 5, 6])
         if np.isnan(rocauc):
             return -float('inf')
@@ -517,10 +515,12 @@ def backtrack_all_LCS(C, seq1, seq2, i, j):
 
     return lcs
 
-
 def filter_positive(data, target_class):
-    return [i for i in data]# if i[0] == target_class]
+    log_losses = []
+    for y_true, confidence in target_class:
+        log_losses.append(log_loss([y_true], [confidence], labels=[1, 2, 3, 4, 5, 6]))
 
+    return data, log_losses
 
 def filter_empty_sequences(data):
     return [i for i in data if len(i[1:]) > 0]

@@ -9,7 +9,7 @@ from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quali
 # sys.setrecursionlimit(15000)
 
 class Node():
-    def __init__(self, intent, parent, data, data_positive, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE):
+    def __init__(self, intent, parent, data, data_positive, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE):
         '''
         :param added_object:
         :param extend: identifiers of objects
@@ -33,7 +33,13 @@ class Node():
             self.parents = []
 
         self.children = []
-        self.candidate_sequences_expand = self.compute_sequence_expand(data_positive) # dataset sequences to expand
+        self.candidate_sequences_expand = []
+        self.log_losses = []
+
+        candidate_sequences_expand = self.compute_sequence_expand(data_positive) # dataset sequences to expand
+        for idx, seq in candidate_sequences_expand:
+            self.candidate_sequences_expand.append(seq)
+            self.log_losses.append(log_losses[idx])
 
         self.number_visits = 1
         self.dead_end = False
@@ -52,10 +58,10 @@ class Node():
     def compute_sequence_expand(self, data_positive):
         # we cannot add sequences wich are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems !
         try:
-            return [seq[1:] for i, seq in enumerate(data_positive) if
+            return [[i, seq[1:]] for i, seq in enumerate(data_positive) if
                     i not in self.extend_positive and not is_subsequence(self.intent, seq[1:])]
         except TypeError:
-            return [seq[1:] for i, seq in enumerate(data_positive) if i not in self.extend_positive]
+            return [[i, seq[1:]] for i, seq in enumerate(data_positive) if i not in self.extend_positive]
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0
@@ -84,12 +90,26 @@ class Node():
         self.dead_end = True
         return True
 
-    def expand(self, data, data_positive, target_class, quality_measure=conf.QUALITY_MEASURE):
-        random_object = random.sample(self.candidate_sequences_expand, 1)[0]
-        self.candidate_sequences_expand.remove(random_object)
+    def expand(self, data, data_positive, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
+        total_sum = sum(self.log_losses)
+        cumulative_probs = []
+        cumulative_sum = 0
+        for loss in self.log_losses:
+            cumulative_sum += loss
+            cumulative_probs.append(cumulative_sum)
+
+        random_object_idx = None
+        rand_num = random.uniform(0, total_sum)
+        for i, cumulative in enumerate(cumulative_probs):
+            if rand_num < cumulative:
+                random_object_idx = i
+                break
+
+        random_object = self.candidate_sequences_expand[random_object_idx]
+        self.candidate_sequences_expand.pop(random_object_idx)
+        self.log_losses.pop(random_object_idx)
 
         if self.intent == None:
-            # for the root node, it is directly database sequences
             sequence_children = sequence_mutable_to_immutable(random_object)
         else:
             sequence_children = sequence_mutable_to_immutable(find_LCS(random_object, self.intent))
@@ -99,7 +119,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, data_positive, target_class, self.node_hashmap, quality_measure=quality_measure)
+            child = Node(sequence_children, self, data, data_positive, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure)
             self.node_hashmap[sequence_children] = child
 
         return child
