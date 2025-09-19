@@ -182,15 +182,15 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             break
 
         node_expand = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
-        if len(node_expand.extend_positive) > (len(data) * 0.2):
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive, node_expand.rocauc)
+        if len(node_expand.extend) > (len(data) * 0.2):
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
         # FIXME: This is a workaround to recalculate the extent from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
-        if len(reward_node.extend_positive) > (len(data) * 0.2):
-            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend_positive, reward_node.rocauc)
+        if len(reward_node.extend) > (len(data) * 0.2):
+            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
         iteration_count += 1

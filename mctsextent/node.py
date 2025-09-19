@@ -23,7 +23,7 @@ class Node():
         self.node_hashmap = node_hashmap
 
         # the extend is the id of sequences
-        self.quality, self.rocauc, self.extend_positive = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
+        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
 
         if parent != None:
             self.parents = [parent]
@@ -58,16 +58,16 @@ class Node():
         # we cannot add sequences wich are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems !
         try:
             return [[i, seq[1:]] for i, seq in enumerate(data) if
-                    i not in self.extend_positive and not is_subsequence(self.intent, seq[1:])]
+                    i not in self.extend and not is_subsequence(self.intent, seq[1:])]
         except TypeError:
-            return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend_positive]
+            return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend]
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0
 
     def is_terminal(self):
         # a node is terminal if all positive sequences have been explored
-        return len(self.extend_positive) == len(self.data)
+        return len(self.extend) == len(self.data)
 
     def is_dead_end(self):
         '''
