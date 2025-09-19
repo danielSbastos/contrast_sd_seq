@@ -528,13 +528,13 @@ def backtrack_all_LCS(C, seq1, seq2, i, j):
 
     return lcs
 
-def filter_positive(data, target_class):
+def calculate_log_losses(target_class):
     log_losses = []
     for y_true, confidence in target_class:
         labels = set(target_class[:, 0])
         log_losses.append(log_loss([y_true], [confidence], labels=list(labels)))
 
-    return data, log_losses
+    return log_losses
 
 def filter_empty_sequences(data):
     return [i for i in data if len(i[1:]) > 0]

@@ -9,7 +9,7 @@ from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quali
 # sys.setrecursionlimit(15000)
 
 class Node():
-    def __init__(self, intent, parent, data, data_positive, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE):
+    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE):
         '''
         :param added_object:
         :param extend: identifiers of objects
@@ -20,7 +20,6 @@ class Node():
 
         self.intent = intent
         self.data = data
-        self.data_positive = data_positive
         self.node_hashmap = node_hashmap
 
         # the extend is the id of sequences
@@ -36,7 +35,7 @@ class Node():
         self.candidate_sequences_expand = []
         self.log_losses = []
 
-        candidate_sequences_expand = self.compute_sequence_expand(data_positive) # dataset sequences to expand
+        candidate_sequences_expand = self.compute_sequence_expand(data) # dataset sequences to expand
         for idx, seq in candidate_sequences_expand:
             self.candidate_sequences_expand.append(seq)
             self.log_losses.append(log_losses[idx])
@@ -55,20 +54,20 @@ class Node():
             return 0, -1, []
         return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
 
-    def compute_sequence_expand(self, data_positive):
+    def compute_sequence_expand(self, data):
         # we cannot add sequences wich are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems !
         try:
-            return [[i, seq[1:]] for i, seq in enumerate(data_positive) if
+            return [[i, seq[1:]] for i, seq in enumerate(data) if
                     i not in self.extend_positive and not is_subsequence(self.intent, seq[1:])]
         except TypeError:
-            return [[i, seq[1:]] for i, seq in enumerate(data_positive) if i not in self.extend_positive]
+            return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend_positive]
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0
 
     def is_terminal(self):
         # a node is terminal if all positive sequences have been explored
-        return len(self.extend_positive) == len(self.data_positive)
+        return len(self.extend_positive) == len(self.data)
 
     def is_dead_end(self):
         '''
@@ -90,7 +89,7 @@ class Node():
         self.dead_end = True
         return True
 
-    def expand(self, data, data_positive, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
+    def expand(self, data, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
         total_sum = sum(self.log_losses)
         cumulative_probs = []
         cumulative_sum = 0
@@ -119,7 +118,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, data_positive, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure)
+            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure)
             self.node_hashmap[sequence_children] = child
 
         return child

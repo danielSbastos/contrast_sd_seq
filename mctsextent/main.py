@@ -11,7 +11,7 @@ import general.conf as conf
 
 from general.reader import read_data_kosarak, read_data
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
-    sequence_immutable_to_mutable, filter_positive, filter_empty_sequences, encode_items, \
+    sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences
 
 from general.priorityset import PrioritySet
@@ -162,11 +162,13 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
-    data_positive, log_losses = filter_positive(data, target_class) # does not filter anything in EMM
+    log_losses = calculate_log_losses(target_class)
     data = filter_empty_sequences(data)
 
+    if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in lenght")
+
     node_hashmap = {}
-    root_node = Node(None, None, data, data_positive, log_losses, target_class, node_hashmap)
+    root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
     node_hashmap[('.')] = root_node
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
@@ -179,13 +181,14 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand = node_sel.expand(data, data_positive, log_losses, target_class, quality_measure=quality_measure)
+        node_expand = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
         if len(node_expand.extend_positive) > (len(data) * 0.2):
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
-        reward_node = Node(sequence_reward, None, data, data_positive, log_losses, target_class, node_hashmap)
+        # FIXME: This is a workaround to recalculate the extent from the sequence_reward
+        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
         if len(reward_node.extend_positive) > (len(data) * 0.2):
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend_positive, reward_node.rocauc)
 
