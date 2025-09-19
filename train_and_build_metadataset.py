@@ -11,49 +11,70 @@ from torch.nn.utils.rnn import pad_sequence
 
 from sklearn.metrics import classification_report, accuracy_score
 
-file_name = './data/figures_rc.dat'
-file_name = './data/context.data'
-#file_name = './data/skating.data'
-
-def build_vocab(filepath):
+def build_vocab(filepath, kosarak=True):
     classes = set()
     classes_list = []
     event_set = set()
+
     with open(filepath, "r") as f:
-        for line in f:
-            tokens = line.strip().split()
-            for tok in tokens[1:]:
-                if tok not in ("-1", "-2"):  
+        if kosarak:
+            for line in f:
+                tokens = line.strip().split()
+                for tok in tokens[1:]:
+                    if tok not in ("-1", "-2"):
+                        event_set.add(tok)
+                classes.add(tokens[0])
+                classes_list.append(tokens[0])
+        else:
+            for line in f:
+                label, _, tokens = line.strip().split(',')
+                for tok in tokens.strip():
                     event_set.add(tok)
-            classes.add(tokens[0])
-            classes_list.append(tokens[0])
-    
-    event2id = {event: idx+2 for idx, event in enumerate(sorted(event_set))}
-    event2id["<PAD>"] = 0
-    event2id["<SEP>"] = 1
+                classes.add(label)
+                classes_list.append(label)
+
+        event2id = {event: idx+2 for idx, event in enumerate(sorted(event_set))}
+        event2id["<PAD>"] = 0
+        event2id["<SEP>"] = 1
 
     return event2id, classes
 
-vocab, classes = build_vocab(file_name)
+file_name = './data/figures_rc.dat'
+file_name = './data/context.data'
+kosarak=False
+file_name = './data/promoters.data'
+file_name = './data/splice.data'
 
-def parse_flatten(line, event2id):
-    tokens = line.strip().split()
-    label = tokens[0]
+vocab, classes = build_vocab(file_name, kosarak)
+
+def parse_flatten(line, event2id, kosarak=True):
     seq = []
-    for tok in tokens[1:]:
-        if tok == "-1":
-            seq.append(event2id["<SEP>"])
-        elif tok == "-2":
-            break
-        else:
+    if kosarak:
+        tokens = line.strip().split()
+        label = tokens[0]
+        for tok in tokens[1:]:
+            if tok == "-1":
+                seq.append(event2id["<SEP>"])
+            elif tok == "-2":
+                break
+            else:
+                seq.append(event2id[tok])
+    else:
+        label, _, tokens = line.strip().split(',')
+ 
+        for tok in tokens.strip():
             seq.append(event2id[tok])
+            seq.append(event2id["<SEP>"])
+
     return label, torch.tensor(seq, dtype=torch.long)
 
 def collate_fn(batch):
     labels, seqs = zip(*batch)
     lengths = torch.tensor([len(s) for s in seqs])
     padded = pad_sequence(seqs, batch_first=True, padding_value=0)  # PAD=0
-    return torch.tensor(list(map(lambda x: int(x) - 1, labels))), padded, lengths
+    #return torch.tensor(list(map(lambda x: int(x) - 1, labels))), padded, lengths
+    #return torch.tensor(list(map(lambda x: {'+': 1, '-': 0}[x], labels))), padded, lengths
+    return torch.tensor(list(map(lambda x: {'EI': 2, 'IE': 1, 'N': 0}[x], labels))), padded, lengths
 
 class FlatLSTMClassifier(nn.Module):
     def __init__(self, vocab_size, emb_dim, hidden_dim, num_classes):
@@ -74,7 +95,7 @@ with open(file_name) as file:
     for line in file:
         lines.append(line)
 
-dataset = [parse_flatten(line, vocab) for line in lines]
+dataset = [parse_flatten(line, vocab, kosarak) for line in lines]
 
 data_loader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=collate_fn)
 
@@ -82,7 +103,7 @@ model = FlatLSTMClassifier(vocab_size=len(vocab), emb_dim=32, hidden_dim=64, num
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 15
+num_epochs = 50
 
 print("Starting training... 🚀")
 model.train()
@@ -114,8 +135,12 @@ r_vocab = {}
 for key, val in vocab.items():
     r_vocab[val] = key
 
-def to_kasarok(padded, label, reversed_vocab):
+def to_kasarok(padded, label, reversed_vocab, str_target=True):
     seq = str(label.item() + 1) + ' '
+
+    if str_target:
+        seq = str(label.item()) + ' '
+
     temp = []
     for item in padded:
         if item == 0:
@@ -144,8 +169,9 @@ with torch.no_grad():
     
         _metadataset = pd.DataFrame(data={
             'sequence': seqs,
-            'y_true': list(map(lambda i: i.item()+1, labels_batch)),
-            #'predictions': list(map(lambda i: i+1, predictions)),
+            #'y_true': list(map(lambda i: i.item()+1, labels_batch)),
+            #'y_true': list(map(lambda i: {1: '+', 0: '-'}[i.item()], labels_batch)),
+            'y_true': labels_batch,
             'confidence': probabilities
         })
         metadataset = pd.concat([metadataset, _metadataset])
@@ -164,6 +190,7 @@ print(f"Overall Accuracy: {accuracy:.4f}\n")
 
 print("Classification Report:")
 print(classification_report(all_labels, all_predictions, target_names=list(map(str, set(all_labels)))))
+
 
 metadataset_file = f"emm_{file_name.split('/')[-1].split('.')[0]}.csv"
 metadataset_sequences = f"emm_{file_name.split('/')[-1].split('.')[0]}.dat"

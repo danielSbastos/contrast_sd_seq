@@ -3,18 +3,20 @@ import datetime
 import sys
 import random
 import copy
-
 import math
+
+from sklearn.metrics import roc_auc_score
 
 import general.conf as conf
 
-from general.reader import read_data_kosarak
+from general.reader import read_data_kosarak, read_data
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, filter_positive, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
+from seqscout.global_var import Model
 
 sys.setrecursionlimit(15000)
 
@@ -119,9 +121,6 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-from sklearn.metrics import roc_auc_score
-from seqscout.global_var import ModelRocAuc
-
 def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
     '''
     :param path: path to the file containing data, in kosarak format
@@ -139,8 +138,15 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
     target_file['confidence'] = target_file['confidence'].map(eval)
     target_class = target_file.values
 
-    rocauc = roc_auc_score(target_file['y_true'].tolist(), target_file['confidence'].tolist(), multi_class='ovo')
-    ModelRocAuc.set(rocauc)
+    Model.set_labels(list(target_file['y_true'].unique()))
+
+    if Model.is_multiclass():
+        rocauc = roc_auc_score(target_file['y_true'].tolist(), target_file['confidence'].tolist(), multi_class='ovo')
+    else:
+        positive_class_scores = [item[1] for item in target_file['confidence']]
+        rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
+
+    Model.set_rocauc(rocauc)
 
     results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta,
                           iterations_limit=2 ** 30)
@@ -174,14 +180,14 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             break
 
         node_expand = node_sel.expand(data, data_positive, log_losses, target_class, quality_measure=quality_measure)
-
         if len(node_expand.extend_positive) > (len(data) * 0.2):
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend_positive, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
-        if len(node_expand.extend_positive) > (len(data) * 0.2):
-            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, node_expand.extend_positive, node_expand.rocauc) # esse extend está errado?
+        reward_node = Node(sequence_reward, None, data, data_positive, log_losses, target_class, node_hashmap)
+        if len(reward_node.extend_positive) > (len(data) * 0.2):
+            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend_positive, reward_node.rocauc)
 
         update(node_expand, reward)
         iteration_count += 1

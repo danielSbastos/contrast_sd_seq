@@ -10,7 +10,7 @@ def increase_it_number():
     ITERATION_NUMBER += 1
 
 
-from seqscout.global_var import ModelRocAuc
+from seqscout.global_var import Model
 
 def sequence_mutable_to_immutable(sequence):
     """
@@ -296,17 +296,27 @@ def extract_l_max(data):
         lmax = max(lmax, k_length(line))
     return lmax
 
+def roc_auc_score_binary(y_trues, confidences):
+    if len(set(y_trues)) < 2:
+        return np.nan
+    else:
+        positive_scores = [item[1] for item in confidences]
+        return roc_auc_score(y_trues, positive_scores)
 
 def get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class):
     if quality_measure == 'ROCAUC':
-        y_trues = list(map(lambda x: x[0], extend_target_class))
-        confidences = list(map(lambda x: x[1], extend_target_class))
-        rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = [1, 2, 3, 4, 5, 6])
-        if np.isnan(rocauc):
-            return -1, 1
-        #if len(extend) >= (len(data) * 0.1):
-        #    import pdb;pdb.set_trace()
-        return ModelRocAuc.get() - rocauc, rocauc
+        y_trues = [item[0] for item in extend_target_class]
+        confidences = [item[1] for item in extend_target_class]
+
+        if Model.is_multiclass():
+            rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = Model.get_labels())
+        else:
+            rocauc = roc_auc_score_binary(y_trues, confidences)
+
+        if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
+            return -1, -1
+
+        return Model.get_rocauc() - rocauc, rocauc
 
     elif quality_measure == 'WRAcc':
         # we find the number of elements who have the right target_class
@@ -521,7 +531,8 @@ def backtrack_all_LCS(C, seq1, seq2, i, j):
 def filter_positive(data, target_class):
     log_losses = []
     for y_true, confidence in target_class:
-        log_losses.append(log_loss([y_true], [confidence], labels=[1, 2, 3, 4, 5, 6]))
+        labels = set(target_class[:, 0])
+        log_losses.append(log_loss([y_true], [confidence], labels=list(labels)))
 
     return data, log_losses
 

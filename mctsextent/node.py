@@ -52,7 +52,7 @@ class Node():
 
     def get_extend_and_quality(self, data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
         if self.intent == None:
-            return 0, 1, []
+            return 0, -1, []
         return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
 
     def compute_sequence_expand(self, data_positive):
