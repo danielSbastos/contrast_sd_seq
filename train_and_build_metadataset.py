@@ -192,8 +192,8 @@ print("Classification Report:")
 print(classification_report(all_labels, all_predictions, target_names=list(map(str, set(all_labels)))))
 
 
-metadataset_file = f"emm_{file_name.split('/')[-1].split('.')[0]}.csv"
-metadataset_sequences = f"emm_{file_name.split('/')[-1].split('.')[0]}.dat"
+metadataset_file = f"data/emm_{file_name.split('/')[-1].split('.')[0]}.csv"
+metadataset_sequences = f"data/emm_{file_name.split('/')[-1].split('.')[0]}.dat"
 
 metadataset.to_csv(metadataset_file, index=False)
 
