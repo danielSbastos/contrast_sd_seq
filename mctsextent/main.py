@@ -157,6 +157,10 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
     return decode_sequences(results, encoding_to_items)
 
 
+def extend_cover_minsup(data, minsup, extend):
+    return len(extend) >= (len(data) * minsup) 
+
+
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
                 iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE):
     begin = datetime.datetime.utcnow()
@@ -182,14 +186,15 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             break
 
         node_expand = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
-        if len(node_expand.extend) > (len(data) * 0.2):
+
+        if extend_cover_minsup(data, 0.15, node_expand.extend):
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
-        # FIXME: This is a workaround to recalculate the extent from the sequence_reward
+        # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
-        if len(reward_node.extend) > (len(data) * 0.2):
+        if extend_cover_minsup(data, 0.15, reward_node.extend):
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)

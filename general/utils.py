@@ -430,15 +430,14 @@ def compute_quality_extend(data, subsequence, target_class, quality_measure=conf
 
     for i, sequence in enumerate(data):
         sequence = sequence[1:]
-
         if is_subsequence(subsequence, sequence):
             support += 1
             extend.append(i)
 
     extend_target_class = target_class[extend]
     quality, rocauc = get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)
-    return quality, rocauc, extend
 
+    return quality, rocauc, extend
 
 import seqscout.global_var
 
