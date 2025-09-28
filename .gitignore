@@ -1,1 +1,10 @@
-**/*/__pycache__
+# Arquivos de dados gerados
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Ambientes virtuais
+venv/
+.venv/

@@ -296,12 +296,12 @@ def extract_l_max(data):
         lmax = max(lmax, k_length(line))
     return lmax
 
+
 def roc_auc_score_binary(y_trues, confidences):
     if len(set(y_trues)) < 2:
         return np.nan
     else:
-        positive_scores = [item[1] for item in confidences]
-        return roc_auc_score(y_trues, positive_scores)
+        return roc_auc_score(y_trues, confidences)
 
 def get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class):
     if quality_measure == 'ROCAUC':

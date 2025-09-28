@@ -135,15 +135,15 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
     data = encode_data(data, items_to_encoding)
 
     target_file = pd.read_csv(target_path)[['y_true', 'confidence']]
-    target_file['confidence'] = target_file['confidence'].map(eval)
     target_class = target_file.values
 
     Model.set_labels(list(target_file['y_true'].unique()))
 
     if Model.is_multiclass():
+        target_file['confidence'] = target_file['confidence'].map(eval)
         rocauc = roc_auc_score(target_file['y_true'].tolist(), target_file['confidence'].tolist(), multi_class='ovo')
     else:
-        positive_class_scores = [item[1] for item in target_file['confidence']]
+        positive_class_scores = target_file['confidence']
         rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
 
     Model.set_rocauc(rocauc)
