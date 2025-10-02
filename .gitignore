@@ -1,5 +1,8 @@
 # Arquivos de dados gerados
-data/
+data/**/*
+config/**/*
+experiments/**/*
+
 
 # Python
 __pycache__/
