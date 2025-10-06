@@ -3,6 +3,7 @@ import copy
 import general.conf as conf
 
 import numpy as np
+from math import e, log
 from sklearn.metrics import roc_auc_score, log_loss
 
 def increase_it_number():
@@ -316,7 +317,29 @@ def get_quality(quality_measure, class_pattern_count, support, data, class_data_
         if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
             return -1, -1
 
-        return Model.get_rocauc() - rocauc, rocauc
+        x = Model.get_rocauc() - rocauc
+        s_rel = support/(len(data))
+        s = support
+
+        if s == 1: return (-1, -1)
+
+        # f = 1 - e**(-x) - 10*x*log(-s+1) (1)
+        # f = (100*x)**(s**0.5) (2)
+        # f = (x**0.5)*e**((10*s)**0.5) (3)
+        # f = x**(s**0.5) # Valoriza muito o delta, ignora suportes altos (4)
+        # f = x**(s_rel) # Valoriza muito o delta, ignora suportes altos (5)
+        # f = (100*x)**(s_rel) # Valoriza muito o suporte alto em detrimento do delta (6)
+        # f = (10*x)**(s_rel) # É estável, mas somente com o alpha = 0. x < 0.1 inverte o comportamento (7)
+        # f = (x+1)**(s_rel) # Valoriza muito o suporte alto em detrimento do delta (8)
+        # f = (x+1)**(s**0.5)
+        # f = (x+1)**((100*s_rel)**0.5)
+        f = (1/(1-x))**s_rel # (a)
+        # f = (1/(1-x))**(s**0.5) # (b)
+        # f = (1/(1-x))**((s_rel*100)**0.5)
+        # f = (1/(1-x))**(1/(1-s_rel))
+        # f = (1/(1-x))*(1/(1-s_rel))
+
+        return f, rocauc
 
     elif quality_measure == 'WRAcc':
         # we find the number of elements who have the right target_class
