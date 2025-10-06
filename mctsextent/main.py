@@ -177,6 +177,9 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
+    
+    log_losses_over_time = []
+    iteration_numbers = []
 
     while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit:
         node_sel = select(root_node)
@@ -185,25 +188,27 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
+        node_expand, selected_log_loss = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
+        
+        log_losses_over_time.append(selected_log_loss)
+        iteration_numbers.append(iteration_count)
 
-        if extend_cover_minsup(data, (10/len(data)), node_expand.extend) and node_expand.quality > 0:
+        if extend_cover_minsup(data, (0/len(data)), node_expand.extend) and node_expand.quality > 0 and node_expand.rocauc > 0:
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
-        if extend_cover_minsup(data, (10/len(data)), reward_node.extend) and reward_node.quality > 0:
+        if extend_cover_minsup(data, (0/len(data)), reward_node.extend) and reward_node.quality > 0 and reward_node.rocauc > 0:
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
         iteration_count += 1
 
-        # if iteration_count % int(iterations_limit * 0.1) == 0:
-        #    print('{}%'.format(iteration_count / iterations_limit * 100))
 
     print('Number iteration mcts: {}'.format(iteration_count))
+    
     return sorted_patterns.get_top_k_non_redundant(data, top_k)
 
 
@@ -224,5 +229,3 @@ if __name__ == '__main__':
     # print_results(results)
     print_rocket_league(results)
     '''
-
-

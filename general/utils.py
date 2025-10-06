@@ -338,6 +338,10 @@ def get_quality(quality_measure, class_pattern_count, support, data, class_data_
         # f = (1/(1-x))**((s_rel*100)**0.5)
         # f = (1/(1-x))**(1/(1-s_rel))
         # f = (1/(1-x))*(1/(1-s_rel))
+        if s_rel < 0.01:  # Less than 1% support
+            f = x * s_rel  # Linear for small groups
+        else:
+            f = (1/(1-x))**s_rel  # Exponential for larger groups
 
         return f, rocauc
 
