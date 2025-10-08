@@ -4,6 +4,7 @@ import sys
 import random
 import copy
 import math
+import matplotlib.pyplot as plt
 
 from sklearn.metrics import roc_auc_score
 
@@ -44,10 +45,13 @@ def best_child(node):
 
     if best_node == None:
         # if program reaches here, the node is a dead_end, we go to the parent
+        import pdb;pdb.set_trace()
         return node.parent
 
     return best_node
 
+
+# quando o root tiver expandido, current será o próximo best child, que quase nunca estará expandandido, então sempre vai ficar no level 1
 
 def select(node):
     """
@@ -55,14 +59,18 @@ def select(node):
     :param node: the node from where we begin to search
     :return: the selected node, or None if exploration is finished
     """
-    while node != 'finished':
-        if not node.is_fully_expanded():
-            return node
-        else:
-            node = best_child(node)
-
-    return 'finished'
-
+    current = node
+    depth = 0
+    while True:
+        if not current.is_fully_expanded():
+            print(f"Depth: {depth}, Candidates remaining: {len(current.candidate_sequences_expand)}")
+            return current
+        next_child = best_child(current)
+        if next_child == 'finished' or next_child is None:
+            print(f"Depth: {depth}")
+            return current
+        current = next_child
+        depth += 1
 
 def roll_out(node, data, target_class, quality_measure=conf.QUALITY_MEASURE):
     """
@@ -121,12 +129,13 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
     :param top_k: the number of patterns we want to get
     :param time_budget: the time we give to the algorithm
+    :param log_loss_threshold: minimum log_loss value for a sequence to be considered as expansion candidate
     :return: the top-k best pattern w.r.t WRAcc, and display them
     '''
     data = read_data_kosarak(path)
@@ -149,7 +158,7 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8):
     Model.set_rocauc(rocauc)
 
     results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta,
-                          iterations_limit=2 ** 30)
+                          iterations_limit=2 ** 30, log_loss_threshold=log_loss_threshold)
     
     print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
@@ -162,7 +171,8 @@ def extend_cover_minsup(data, minsup, extend):
 
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE):
+                iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE, 
+                log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
@@ -172,8 +182,11 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in lenght")
 
     node_hashmap = {}
-    root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
+    root_node = Node(None, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
     node_hashmap[('.')] = root_node
+    
+    print(f"Log loss threshold: {log_loss_threshold}")
+    print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
@@ -193,14 +206,14 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         log_losses_over_time.append(selected_log_loss)
         iteration_numbers.append(iteration_count)
 
-        if extend_cover_minsup(data, (0/len(data)), node_expand.extend) and node_expand.quality > 0 and node_expand.rocauc > 0:
+        if extend_cover_minsup(data, (10/len(data)), node_expand.extend) and node_expand.quality > 0 and node_expand.rocauc > 0:
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
-        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
-        if extend_cover_minsup(data, (0/len(data)), reward_node.extend) and reward_node.quality > 0 and reward_node.rocauc > 0:
+        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
+        if extend_cover_minsup(data, (10/len(data)), reward_node.extend) and reward_node.quality > 0 and reward_node.rocauc > 0:
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
@@ -208,9 +221,23 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
 
     print('Number iteration mcts: {}'.format(iteration_count))
+
+    plot_log_loss(iteration_numbers, log_losses_over_time)
     
     return sorted_patterns.get_top_k_non_redundant(data, top_k)
 
+
+def plot_log_loss(iteration_numbers, log_losses_over_time):
+    plt.figure(figsize=(12, 6))
+    plt.plot(iteration_numbers, log_losses_over_time, linewidth=0.8, alpha=0.7, color='steelblue')
+    plt.xlabel("Iteration", fontsize=12)
+    plt.ylabel("Selected Log Loss", fontsize=12)
+    plt.title("Evolution of Log Losses at Each Iteration", fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    plt.savefig('log_loss_over_time.png', dpi=300, bbox_inches='tight')
+    print(f"Saved log loss evolution plot to log_loss_over_time.png")
+    plt.close()
 
 if __name__ == '__main__':
 #    results = get_patterns(path='../data/figures_rc.dat', target_class='1', top_k=10, theta=0.5)

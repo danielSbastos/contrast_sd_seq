@@ -7,6 +7,7 @@ DATA = 'promoters'# promoters, sc2, splice, context, block, skating, jmlr, aslbu
 #QUALITY_MEASURE = 'roc-auc'# WRAcc, F1, Informedness, Precision, Lift
 QUALITY_MEASURE = 'ROCAUC'# WRAcc, F1, Informedness, Precision, Lift
 PRECISION_MIN_SUPPORT = 20
+LOG_LOSS_THRESHOLD = 1.1  # only expand sequences with log_loss >= threshold
 
 # Do not change this value if you do not know what your are doing
 TIME_BUDGET_XP = 2**30

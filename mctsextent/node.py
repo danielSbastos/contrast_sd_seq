@@ -9,18 +9,20 @@ from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quali
 # sys.setrecursionlimit(15000)
 
 class Node():
-    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE):
+    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
         '''
         :param added_object:
         :param extend: identifiers of objects
         :param parent:
         :param data:
         :param target_class:
+        :param log_loss_threshold: minimum log_loss value for a sequence to be considered as expansion candidate
         '''
 
         self.intent = intent
         self.data = data
         self.node_hashmap = node_hashmap
+        self.log_loss_threshold = log_loss_threshold
 
         # the extend is the id of sequences
         self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
@@ -36,9 +38,11 @@ class Node():
         self.log_losses = []
 
         candidate_sequences_expand = self.compute_sequence_expand(data) # dataset sequences to expand
+
         for idx, seq in candidate_sequences_expand:
-            self.candidate_sequences_expand.append(seq)
-            self.log_losses.append(log_losses[idx])
+            if log_losses[idx] >= log_loss_threshold:
+                self.candidate_sequences_expand.append(seq)
+                self.log_losses.append(log_losses[idx])
 
         self.number_visits = 1
         self.dead_end = False
@@ -122,7 +126,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure)
+            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure, log_loss_threshold=self.log_loss_threshold)
             self.node_hashmap[sequence_children] = child
 
         return child, selected_log_loss
