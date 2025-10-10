@@ -1,12 +1,8 @@
-import random
 import general.conf as conf
-import sys
 
-from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, k_length, is_subsequence
-
+from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, is_subsequence
 
 
-# sys.setrecursionlimit(15000)
 
 class Node():
     def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
@@ -59,12 +55,42 @@ class Node():
         return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
 
     def compute_sequence_expand(self, data):
-        # we cannot add sequences wich are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems !
-        try:
-            return [[i, seq[1:]] for i, seq in enumerate(data) if
-                    i not in self.extend and not is_subsequence(self.intent, seq[1:])]
-        except TypeError:
+        # we cannot add sequences which are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems!
+
+        # If root node (intent is None), consider all sequences
+        if self.intent is None:
             return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend]
+
+        # For non-root nodes: only expand with sequences that contain ALL elements from the intent
+        # This prevents losing key pattern elements (especially rare ones) during LCS operations
+        intent_elements = set()
+        for itemset in self.intent:
+            intent_elements.update(itemset)
+
+        candidates = []
+        for i, seq in enumerate(data):
+            if i in self.extend:
+                continue
+
+            sequence = seq[1:]
+
+            # Check if sequence is a supersequence of intent (skip if true)
+            try:
+                if is_subsequence(self.intent, sequence):
+                    continue
+            except TypeError:
+                pass
+
+            # Get all elements in this sequence
+            sequence_elements = set()
+            for itemset in sequence:
+                sequence_elements.update(itemset)
+
+            # Only include if sequence contains ALL elements from intent
+            if intent_elements.issubset(sequence_elements):
+                candidates.append([i, sequence])
+
+        return candidates
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0

@@ -198,7 +198,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         log_losses_over_time.append(selected_log_loss)
         iteration_numbers.append(iteration_count)
 
-        if node_expand.quality > 0 and node_expand.rocauc > 0:
+        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent):
             quality = node_expand.quality - math.log(len(node_expand.intent))
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
@@ -217,22 +217,8 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     print('Number iteration mcts: {}'.format(iteration_count))
 
-    plot_log_loss(iteration_numbers, log_losses_over_time)
-    
     return sorted_patterns.get_top_k_non_redundant(data, top_k)
 
-
-def plot_log_loss(iteration_numbers, log_losses_over_time):
-    plt.figure(figsize=(12, 6))
-    plt.plot(iteration_numbers, log_losses_over_time, linewidth=0.8, alpha=0.7, color='steelblue')
-    plt.xlabel("Iteration", fontsize=12)
-    plt.ylabel("Selected Log Loss", fontsize=12)
-    plt.title("Evolution of Log Losses at Each Iteration", fontsize=14, fontweight='bold')
-    plt.grid(True, alpha=0.3, linestyle='--')
-    plt.tight_layout()
-    plt.savefig('log_loss_over_time.png', dpi=300, bbox_inches='tight')
-    print(f"Saved log loss evolution plot to log_loss_over_time.png")
-    plt.close()
 
 if __name__ == '__main__':
 #    results = get_patterns(path='../data/figures_rc.dat', target_class='1', top_k=10, theta=0.5)
