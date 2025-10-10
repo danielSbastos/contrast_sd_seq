@@ -94,33 +94,19 @@ class Node():
         return True
 
     def expand(self, data, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
-        losses = [loss for loss in self.log_losses]
+        max_loss_idx = self.log_losses.index(max(self.log_losses))
 
-        total_sum = sum(losses)
-        cumulative_probs = []
-        cumulative_sum = 0
-        for loss in losses:
-            cumulative_sum += loss
-            cumulative_probs.append(cumulative_sum)
+        random_object = self.candidate_sequences_expand[max_loss_idx]
+        selected_log_loss = self.log_losses[max_loss_idx]
 
-        random_object_idx = None
-        rand_num = random.uniform(0, total_sum)
-        for i, cumulative in enumerate(cumulative_probs):
-            if rand_num < cumulative:
-                random_object_idx = i
-                break
-
-        random_object = self.candidate_sequences_expand[random_object_idx]
-        selected_log_loss = losses[random_object_idx]
-        
-        self.candidate_sequences_expand.pop(random_object_idx)
-        self.log_losses.pop(random_object_idx)
+        self.candidate_sequences_expand.pop(max_loss_idx)
+        self.log_losses.pop(max_loss_idx)
 
         if self.intent == None:
             sequence_children = sequence_mutable_to_immutable(random_object)
         else:
             sequence_children = sequence_mutable_to_immutable(find_LCS(random_object, self.intent))
-            
+
         if sequence_children in self.node_hashmap:
             child = self.node_hashmap[sequence_children]
             child.parents.append(self)

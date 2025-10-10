@@ -1,4 +1,5 @@
 import pandas as pd
+import math
 import datetime
 import sys
 import random
@@ -45,32 +46,23 @@ def best_child(node):
 
     if best_node == None:
         # if program reaches here, the node is a dead_end, we go to the parent
-        import pdb;pdb.set_trace()
-        return node.parent
+        return node.parents[0]
 
     return best_node
 
 
-# quando o root tiver expandido, current será o próximo best child, que quase nunca estará expandandido, então sempre vai ficar no level 1
-
 def select(node):
-    """
-    Select the best node, using exploration-exploitation tradeoff
-    :param node: the node from where we begin to search
-    :return: the selected node, or None if exploration is finished
-    """
-    current = node
-    depth = 0
-    while True:
-        if not current.is_fully_expanded():
-            print(f"Depth: {depth}, Candidates remaining: {len(current.candidate_sequences_expand)}")
-            return current
-        next_child = best_child(current)
-        if next_child == 'finished' or next_child is None:
-            print(f"Depth: {depth}")
-            return current
-        current = next_child
-        depth += 1
+    while node != 'finished':
+        if len(node.children) == 0:
+            return node
+        else:
+            if (random.random() < 0.5) and (not node.is_fully_expanded()):
+                return node
+            else:
+                node = best_child(node)
+
+    return 'finished'
+
 
 def roll_out(node, data, target_class, quality_measure=conf.QUALITY_MEASURE):
     """
@@ -129,7 +121,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.8, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -206,17 +198,20 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         log_losses_over_time.append(selected_log_loss)
         iteration_numbers.append(iteration_count)
 
-        if extend_cover_minsup(data, (10/len(data)), node_expand.extend) and node_expand.quality > 0 and node_expand.rocauc > 0:
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.rocauc)
+        if node_expand.quality > 0 and node_expand.rocauc > 0:
+            quality = node_expand.quality - math.log(len(node_expand.intent))
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
-        if extend_cover_minsup(data, (10/len(data)), reward_node.extend) and reward_node.quality > 0 and reward_node.rocauc > 0:
+        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward):
+            reward -= math.log(len(sequence_reward))
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
+
         iteration_count += 1
 
 
