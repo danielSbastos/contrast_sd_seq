@@ -2,7 +2,7 @@
 TOP_K = 5
 ITERATIONS_NUMBER = 10000
 TIME_BUDGET = 60
-THETA = 0.8
+THETA = 0.0
 DATA = 'promoters'# promoters, sc2, splice, context, block, skating, jmlr, aslbu
 #QUALITY_MEASURE = 'roc-auc'# WRAcc, F1, Informedness, Precision, Lift
 QUALITY_MEASURE = 'ROCAUC'# WRAcc, F1, Informedness, Precision, Lift

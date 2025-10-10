@@ -1,0 +1,20 @@
+[
+  {
+    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
+    "pattern": ["B"],
+    "quantity": 10,
+    "target_auc": 0.95
+  },
+  {
+    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
+    "pattern": ["A"],
+    "quantity": 10,
+    "target_auc": 0.95
+  },
+  {
+    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
+    "pattern": ["C"],
+    "quantity": 60,
+    "target_auc": 0.60
+  }
+]

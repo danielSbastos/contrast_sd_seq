@@ -21,14 +21,25 @@ def to_kosarak_format(class_label, sequence_data):
 def generate_sequences_with_scores_iterative(
     n_samples, 
     target_auc, 
-    base_element=None, 
+    base_element=None,
+    base_pattern=None,
     vocabulary=None, 
     max_iter=50, 
     tolerance=0.001
 ):
     """
     Gera um subconjunto de dados com uma ROC AUC alvo específica.
-    Modificado para lidar com itemsets (strings com espaços) como elementos.
+    Modificado para lidar com itemsets (strings com espaços) como elementos,
+    e agora suporta injeção de padrões sequenciais (sequências de itemsets).
+    
+    Args:
+        n_samples: Número de amostras a gerar
+        target_auc: AUC alvo para o subconjunto
+        base_element: Elemento único a injetar (backward compatibility)
+        base_pattern: Lista de itemsets a injetar como padrão sequencial, ex: ["A", "A B", "C"]
+        vocabulary: Vocabulário de elementos
+        max_iter: Número máximo de iterações para ajuste de AUC
+        tolerance: Tolerância para convergência de AUC
     """
     if n_samples == 0:
         return pd.DataFrame({'sequence': [], 'y_true': [], 'confidence': []})
@@ -52,16 +63,47 @@ def generate_sequences_with_scores_iterative(
     # --- Fim da lógica de AUC ---
 
     sequences = []
-    INTERNAL_DELIMITER = "|" 
+    INTERNAL_DELIMITER = "|"
+    
+    # Determinar vocabulário limpo (remover elementos do padrão)
+    if base_pattern:
+        # Extrair todos os elementos únicos do padrão
+        pattern_elements = set()
+        for itemset in base_pattern:
+            for elem in itemset.split():
+                pattern_elements.add(elem)
+        current_vocab = [v for v in vocabulary if v not in pattern_elements]
+    elif base_element:
+        current_vocab = [v for v in vocabulary if v != base_element]
+    else:
+        current_vocab = vocabulary
 
     for _ in range(n_samples):
-        seq_length = np.random.randint(5, 8)
-        
-        current_vocab = [v for v in vocabulary if v != base_element]
+        seq_length = np.random.randint(5, 15)
         
         seq = np.random.choice(current_vocab, seq_length, replace=True).tolist()
         
-        if base_element:
+        # Injetar padrão sequencial ou elemento único
+        if base_pattern:
+            # Injetar padrão sequencial com gaps aleatórios
+            insert_pos = np.random.randint(0, len(seq) + 1)
+            
+            # Inserir itemsets do padrão com gaps aleatórios entre eles
+            for i, itemset in enumerate(base_pattern):
+                # Inserir o itemset
+                seq.insert(insert_pos, itemset)
+                insert_pos += 1
+                
+                # Adicionar gap aleatório após o itemset (exceto após o último)
+                if i < len(base_pattern) - 1:
+                    gap_size = np.random.randint(0, 3)  # Gap de 0 a 2 itemsets
+                    for _ in range(gap_size):
+                        gap_item = np.random.choice(current_vocab)
+                        seq.insert(insert_pos, gap_item)
+                        insert_pos += 1
+                        
+        elif base_element:
+            # Comportamento original: injetar elemento único
             insert_pos = np.random.randint(0, len(seq) + 1)
             seq.insert(insert_pos, base_element)
             
@@ -128,84 +170,136 @@ def find_optimal_auc_for_remainder(
     print("Máximo de iterações atingido. Retornando a melhor solução encontrada.")
     return df_final, current_auc_Z
 
-# --- Parâmetros ---
-parser = argparse.ArgumentParser(description="Gerador de sequências com AUC alvo")
-parser.add_argument("--gauc", type=float, required=True, help="Target AUC para o conjunto final")
-parser.add_argument("--voc", type=str, required=True, help="Caminho para o vocabulário")
-parser.add_argument("--sig", type=str, required=True, help="Caminho para o arquivo de regras")
-parser.add_argument("--maxseq", type=int, default=1000, help="Número máximo de sequências permitido")
+def main():
+    # --- Parâmetros ---
+    parser = argparse.ArgumentParser(description="Gerador de sequências com AUC alvo")
+    parser.add_argument("--gauc", type=float, required=True, help="Target AUC para o conjunto final")
+    parser.add_argument("--voc", type=str, required=True, help="Caminho para o vocabulário")
+    parser.add_argument("--sig", type=str, required=True, help="Caminho para o arquivo de regras")
+    parser.add_argument("--maxseq", type=int, default=1000, help="Número máximo de sequências permitido")
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-GLOBAL_AUC_X = args.gauc
-VOCABULARY = load_vocabulary(args.voc)
-signal_rules = load_signal_rules(args.sig)
-total_sequences = sum(rule['quantity'] for rule in signal_rules) if signal_rules else 0
-N_REMAINDER = max(args.maxseq - total_sequences, total_sequences or 800)
+    GLOBAL_AUC_X = args.gauc
+    VOCABULARY = load_vocabulary(args.voc)
+    signal_rules = load_signal_rules(args.sig)
+    total_sequences = sum(rule['quantity'] for rule in signal_rules) if signal_rules else 0
+    N_REMAINDER = max(args.maxseq - total_sequences, total_sequences or 800)
 
-# --- Geração dos Dados ---
+    # --- Geração dos Dados ---
 
-df_list = []
-CLEANED_VOCABULARY = [v for v in VOCABULARY if v not in [rule['element'] for rule in signal_rules]]
+    df_list = []
 
-# Gera os subconjuntos conforme as regras carregadas
-for rule in signal_rules:
-    element = rule['element']
-    quantity = rule['quantity']
-    target_auc = rule['target_auc']
-    
-    print(f"Gerando subconjunto com elemento '{element}' e AUC alvo de {target_auc}...")
-    df_rule = generate_sequences_with_scores_iterative(
-        n_samples=quantity,
-        target_auc=target_auc,
-        base_element=element,
-        vocabulary=CLEANED_VOCABULARY
+    # Coletar todos os elementos usados nas regras para criar vocabulário limpo
+    elements_in_rules = set()
+    for rule in signal_rules:
+        if 'pattern' in rule:
+            # Padrão sequencial: extrair elementos de todos os itemsets
+            for itemset in rule['pattern']:
+                for elem in itemset.split():
+                    elements_in_rules.add(elem)
+        elif 'element' in rule:
+            # Elemento único
+            for elem in rule['element'].split():
+                elements_in_rules.add(elem)
+
+    CLEANED_VOCABULARY = [v for v in VOCABULARY if v not in elements_in_rules]
+
+    # Gera os subconjuntos conforme as regras carregadas
+    for rule in signal_rules:
+        quantity = rule['quantity']
+        target_auc = rule['target_auc']
+        
+        # Suporte para padrão sequencial ou elemento único
+        if 'pattern' in rule:
+            pattern = rule['pattern']
+            print(f"Gerando subconjunto com padrão {pattern} e AUC alvo de {target_auc}...")
+            df_rule = generate_sequences_with_scores_iterative(
+                n_samples=quantity,
+                target_auc=target_auc,
+                base_pattern=pattern,
+                vocabulary=CLEANED_VOCABULARY
+            )
+            identifier = f"padrão {pattern}"
+        else:
+            # Backward compatibility: suporte para 'element'
+            element = rule['element']
+            print(f"Gerando subconjunto com elemento '{element}' e AUC alvo de {target_auc}...")
+            df_rule = generate_sequences_with_scores_iterative(
+                n_samples=quantity,
+                target_auc=target_auc,
+                base_element=element,
+                vocabulary=CLEANED_VOCABULARY
+            )
+            identifier = f"'{element}'"
+        
+        # Verifica a AUC do subconjunto gerado
+        auc_actual = roc_auc_score(df_rule['y_true'], df_rule['confidence'])
+        print(f"AUC real do subconjunto com {identifier}: {auc_actual:.4f}\n")
+        
+        df_list.append(df_rule)
+
+    df_list_concatenated = pd.concat(df_list, ignore_index=True)
+
+    # 2. Encontrar a melhor AUC para o conjunto restante e gerar o dataframe final
+    df_final, final_auc_Z = find_optimal_auc_for_remainder(
+        global_target_auc_X=GLOBAL_AUC_X,
+        df_subsets=df_list_concatenated,
+        n_remainder=N_REMAINDER,
+        vocabulary=CLEANED_VOCABULARY,
     )
-    
-    # Verifica a AUC do subconjunto gerado
-    auc_actual = roc_auc_score(df_rule['y_true'], df_rule['confidence'])
-    print(f"AUC real do subconjunto com '{element}': {auc_actual:.4f}\n")
-    
-    df_list.append(df_rule)
 
-df_list_concatenated = pd.concat(df_list, ignore_index=True)
+    print("\n--- Verificação Final ---")
+    final_global_auc = roc_auc_score(df_final['y_true'], df_final['confidence'])
+    print(f"AUC Global Alvo (X): {GLOBAL_AUC_X}")
+    print(f"AUC Global Final: {final_global_auc:.4f}")
 
-# 2. Encontrar a melhor AUC para o conjunto restante e gerar o dataframe final
-df_final, final_auc_Z = find_optimal_auc_for_remainder(
-    global_target_auc_X=GLOBAL_AUC_X,
-    df_subsets=df_list_concatenated,
-    n_remainder=N_REMAINDER,
-    vocabulary=CLEANED_VOCABULARY,
-)
+    for rule in signal_rules:
+        target_auc = rule['target_auc']
+        
+        if 'pattern' in rule:
+            # Verificação para padrão sequencial
+            pattern_itemsets = rule['pattern']
+            
+            # Construir regex para detectar o padrão sequencial
+            # Padrão deve ter itemsets na ordem correta, mas pode ter gaps entre eles
+            pattern_parts = []
+            for itemset in pattern_itemsets:
+                # Cada itemset deve aparecer seguido de -1
+                pattern_parts.append(f" {re.escape(itemset)} -1")
+            
+            # Regex que permite qualquer coisa entre os itemsets (gaps)
+            # Exemplo: " A -1 .* A B -1 .* C -1"
+            pattern_regex = ".*".join(pattern_parts)
+            
+            df_subsets_final = df_final[df_final['sequence'].str.contains(pattern_regex, regex=True)]
+            identifier = f"padrão {pattern_itemsets}"
+            
+        else:
+            # Verificação para elemento único (backward compatibility)
+            element = rule['element']
+            pattern = f" {re.escape(element)} -1"
+            label_pattern = f"^{re.escape(df_final['sequence'].iloc[0].split()[0])} {re.escape(element)} -1"
+            
+            df_subsets_final = df_final[
+                df_final['sequence'].str.contains(pattern) | df_final['sequence'].str.contains(label_pattern)
+            ]
+            identifier = f"'{element}'"
+        
+        if not df_subsets_final.empty:
+            final_subset_auc = roc_auc_score(df_subsets_final['y_true'], df_subsets_final['confidence'])
+            print(f"\nAUC do Subconjunto Alvo com {identifier}: {target_auc}")
+            print(f"AUC Final Verificada do Subconjunto: {final_subset_auc:.4f}")
+            print(f"Número de sequências no subconjunto com {identifier}: {len(df_subsets_final)}")
+        else:
+            print(f"\nAVISO: Nenhum subconjunto encontrado para {identifier} na verificação final.")
 
-print("\n--- Verificação Final ---")
-final_global_auc = roc_auc_score(df_final['y_true'], df_final['confidence'])
-print(f"AUC Global Alvo (X): {GLOBAL_AUC_X}")
-print(f"AUC Global Final: {final_global_auc:.4f}")
+    # Salvando os dados em um arquivo CSV
+    sequences = df_final['sequence']
+    np.savetxt("data/synth.dat", sequences, fmt="%s")
+    print("\nSequências salvas em 'data/synth.dat'")
+    df_final.to_csv("data/synth.csv", index=False)
+    print("Dataset final salvo em 'data/synth.csv'")
 
-for rule in signal_rules:
-    element = rule['element']
-    target_auc = rule['target_auc']
-
-    pattern = f" {re.escape(element)} -1"
-
-    label_pattern = f"^{re.escape(df_final['sequence'].iloc[0].split()[0])} {re.escape(element)} -1"
-
-    df_subsets_final = df_final[
-        df_final['sequence'].str.contains(pattern) | df_final['sequence'].str.contains(label_pattern)
-    ]
-    
-    if not df_subsets_final.empty:
-        final_subset_auc = roc_auc_score(df_subsets_final['y_true'], df_subsets_final['confidence'])
-        print(f"\nAUC do Subconjunto Alvo com '{element}': {target_auc}")
-        print(f"AUC Final Verificada do Subconjunto: {final_subset_auc:.4f}")
-        print(f"Número de sequências no subconjunto com '{element}': {len(df_subsets_final)}")
-    else:
-        print(f"\nAVISO: Nenhum subconjunto encontrado para o elemento '{element}' na verificação final.")
-
-# Salvando os dados em um arquivo CSV
-sequences = df_final['sequence']
-np.savetxt("data/synth.dat", sequences, fmt="%s")
-print("\nSequências salvas em 'data/synth.dat'")
-df_final.to_csv("data/synth.csv", index=False)
-print("Dataset final salvo em 'data/synth.csv'")
+if __name__ == "__main__":
+    main()

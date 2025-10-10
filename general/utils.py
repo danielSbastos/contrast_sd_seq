@@ -327,56 +327,6 @@ def get_quality(quality_measure, class_pattern_count, support, data, class_data_
 
         return f, rocauc
 
-    elif quality_measure == 'WRAcc':
-        # we find the number of elements who have the right target_class
-        try:
-            class_pattern_ratio = class_pattern_count / support
-        except ZeroDivisionError:
-            return -0.25
-
-        class_data_ratio = class_data_count / len(data)
-        wracc = support / len(data) * (class_pattern_ratio - class_data_ratio)
-        return wracc
-
-    elif quality_measure == 'Informedness':
-        tn = len(data) - support - (class_data_count - class_pattern_count)
-        tpr = class_pattern_count / (class_pattern_count + (class_data_count - class_pattern_count))
-        tnr = tn / (support - class_pattern_count + tn)
-        return tnr + tpr - 1
-
-    elif quality_measure == 'F1':
-        try:
-            class_pattern_ratio = class_pattern_count / support
-        except ZeroDivisionError:
-            return 0
-        precision = class_pattern_ratio
-        recall = class_pattern_count / class_data_count
-        try:
-            f1 = 2 * precision * recall / (precision + recall)
-        except ZeroDivisionError:
-            f1 = 0
-        return f1
-    elif quality_measure == 'Precision':
-        try:
-            if support > conf.PRECISION_MIN_SUPPORT:
-                precision = class_pattern_count / support
-            else:
-                return 0
-        except ZeroDivisionError:
-            return 0
-        return precision
-    elif quality_measure == 'Lift':
-        try:
-            if support > conf.PRECISION_MIN_SUPPORT:
-                return class_pattern_count * len(data) / (class_data_count * support)
-            else:
-                return 0
-        except ZeroDivisionError:
-            return 0
-    else:
-        raise ValueError('The quality measure name is not valid')
-
-
 def compute_support(data, subsequence):
     support = 0
 

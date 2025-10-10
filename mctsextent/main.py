@@ -91,6 +91,9 @@ def roll_out(node, data, target_class, quality_measure=conf.QUALITY_MEASURE):
             sequence.pop(chosen_itemset_i)
 
     reward = compute_quality(data, sequence, target_class, quality_measure=quality_measure)
+
+    #print("mutated sequente: ", sequence)
+    #print("original sequente: ", node.intent)
     return sequence, reward
 
 
