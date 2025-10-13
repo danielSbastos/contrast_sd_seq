@@ -158,9 +158,11 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, lo
     return decode_sequences(results, encoding_to_items)
 
 
-def extend_cover_minsup(data, minsup, extend):
+def extend_cover_minsup_rel(data, minsup, extend):
     return len(extend) >= (len(data) * minsup) 
 
+def extend_cover_minsup_abs(extend, minsup):
+    return len(extend) >= minsup
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
                 iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE, 
@@ -198,7 +200,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         log_losses_over_time.append(selected_log_loss)
         iteration_numbers.append(iteration_count)
 
-        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent):
+        if node_expand.quality != -1 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend, 10):
             quality = node_expand.quality - math.log(len(node_expand.intent))
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
@@ -206,7 +208,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
-        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward):
+        if reward_node.quality != 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
             reward -= math.log(len(sequence_reward))
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
