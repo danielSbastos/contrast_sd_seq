@@ -1,5 +1,7 @@
 import general.conf as conf
 
+import random
+
 from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, is_subsequence
 
 
@@ -55,14 +57,12 @@ class Node():
         return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
 
     def compute_sequence_expand(self, data):
-        # we cannot add sequences which are supersequences of pattern, or else the LCS will return the same node, creating a dag and many problems!
-
         # If root node (intent is None), consider all sequences
         if self.intent is None:
             return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend]
 
         # For non-root nodes: only expand with sequences that contain ALL elements from the intent
-        # This prevents losing key pattern elements (especially rare ones) during LCS operations
+        # this prevents losing key pattern elements (especially rare ones) during LCS operations
         intent_elements = set()
         for itemset in self.intent:
             intent_elements.update(itemset)
@@ -74,23 +74,24 @@ class Node():
 
             sequence = seq[1:]
 
-            # Check if sequence is a supersequence of intent (skip if true)
+            # check if sequence is a supersequence of intent (skip if true)
             try:
                 if is_subsequence(self.intent, sequence):
                     continue
             except TypeError:
                 pass
 
-            # Get all elements in this sequence
+            # get all elements in this sequence
             sequence_elements = set()
             for itemset in sequence:
                 sequence_elements.update(itemset)
 
-            # Only include if sequence contains ALL elements from intent
+            # lnly include if sequence contains ALL elements from intent
             if intent_elements.issubset(sequence_elements):
                 candidates.append([i, sequence])
 
         return candidates
+
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0
@@ -120,13 +121,26 @@ class Node():
         return True
 
     def expand(self, data, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
-        max_loss_idx = self.log_losses.index(max(self.log_losses))
+        losses = [loss for loss in self.log_losses]
+        total_sum = sum(losses)
+        cumulative_probs = []
+        cumulative_sum = 0
+        for loss in losses:
+            cumulative_sum += loss
+            cumulative_probs.append(cumulative_sum)
 
-        random_object = self.candidate_sequences_expand[max_loss_idx]
-        selected_log_loss = self.log_losses[max_loss_idx]
+        random_object_idx = None
+        rand_num = random.uniform(0, total_sum)
+        for i, cumulative in enumerate(cumulative_probs):
+            if rand_num < cumulative:
+                random_object_idx = i
+                break
 
-        self.candidate_sequences_expand.pop(max_loss_idx)
-        self.log_losses.pop(max_loss_idx)
+        random_object = self.candidate_sequences_expand[random_object_idx]
+        selected_log_loss = losses[random_object_idx]
+
+        self.candidate_sequences_expand.pop(random_object_idx)
+        self.log_losses.pop(random_object_idx)
 
         if self.intent == None:
             sequence_children = sequence_mutable_to_immutable(random_object)

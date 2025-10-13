@@ -60,7 +60,6 @@ def select(node):
                 return node
             else:
                 node = best_child(node)
-
     return 'finished'
 
 
@@ -208,7 +207,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
-        if reward_node.quality != 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
+        if reward_node.quality != -1 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
             reward -= math.log(len(sequence_reward))
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
