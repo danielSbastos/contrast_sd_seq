@@ -1,20 +1,20 @@
 [
   {
-    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
-    "pattern": ["B"],
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
-    "pattern": ["A"],
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "comment": "Sequential pattern injection: {A} -> {B} -> {C}",
-    "pattern": ["C"],
-    "quantity": 60,
+    "comment": "THE REAL PATTERN: {A} -> {C} with strong signal",
+    "pattern": ["A", "C"],
+    "quantity": 250,
     "target_auc": 0.60
+  },
+  {
+    "comment": "NOISE: A appears with B to dilute individual {A} pattern",
+    "pattern": ["B", "A"],
+    "quantity": 150,
+    "target_auc": 0.93
+  },
+  {
+    "comment": "NOISE: C appears with D to dilute individual {C} pattern",
+    "pattern": ["C", "D"],
+    "quantity": 150,
+    "target_auc": 0.93
   }
 ]

@@ -41,7 +41,6 @@ def filter_results(results, data, theta, k):
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
 
-    print(results_list)
     filtered_elements = []
 
     for i, result in enumerate(results_list):
