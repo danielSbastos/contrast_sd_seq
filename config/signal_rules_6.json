@@ -13,5 +13,10 @@
       "element": "C D",
       "quantity": 15,
       "target_auc": 0.65
+    },
+    {
+      "element": "{E F}",
+      "quantity": 50,
+      "target_auc": 0.65
     }
   ]
