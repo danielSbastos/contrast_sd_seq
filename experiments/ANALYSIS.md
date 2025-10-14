@@ -2,6 +2,7 @@
 
 - Mudanças
 - Experimentos
+- Próximo Passos
 
 ## Mudanças
 
@@ -120,8 +121,6 @@ Each dataset has ~1000 sequences with planted patterns:
 - Pattern X is **dominant and obvious** (400-700 sequences, high AUC) - NOT IMPORTANT
 - Patterns A, B, C/D are **rare and subtle** (15-30 sequences) - THESE ARE IMPORTANT
 - Pattern B is the hardest (only 20 sequences, medium AUC)
-
----
 
 ---
 
@@ -323,3 +322,12 @@ UCB selection **deterministically** focuses on high-support patterns (C/D):
 - Rare C/D pattern (only 15 sequences)
 - Requires ~9,700 iterations
 - Needs all optimizations
+
+
+## Próximo Passos
+
+1. Rodar com padrões sequenciais de tamanho > 1
+    - Possivelmente a função de penalização do tamanho do padrão terá que se revista
+2. Ajustar a medida de qualidade para usar um termo de penalização de acordo com o suporte
+    - Atual medida funciona muito bem, mas é difícil de interpretar
+3. Dataset real (?)
