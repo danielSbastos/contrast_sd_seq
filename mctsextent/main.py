@@ -199,7 +199,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         log_losses_over_time.append(selected_log_loss)
         iteration_numbers.append(iteration_count)
 
-        if node_expand.quality != -1 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend, 10):
+        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend, 10):
             quality = node_expand.quality - math.log(len(node_expand.intent) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
@@ -207,7 +207,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         # FIXME: This is a workaround to recalculate the extend from the sequence_reward
         reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
-        if reward_node.quality != -1 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
+        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
             reward -= math.log(len(sequence_reward) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
