@@ -107,11 +107,11 @@ def roll_out(node, data, target_class, item_log_losses=None):
     if prob_range > 0:
         n_probs = [(p - min_prob) / prob_range for p in probs]
     else:
-        n_probs = [1.0 / len(probs)] * len(probs)
+        n_probs = probs
 
     n_item_candidates = []
-    for (itemset, item, _), n_prob in zip(item_candidates, n_probs):
-        n_item_candidates.append((itemset, item, n_prob))
+    for (itemset_idx, item, _), n_prob in zip(item_candidates, n_probs):
+        n_item_candidates.append((itemset_idx, item, n_prob))
 
     items_to_remove = []
     available_candidates = n_item_candidates.copy()
@@ -133,11 +133,12 @@ def roll_out(node, data, target_class, item_log_losses=None):
     # remove items and track which itemsets become empty
     itemsets_to_remove = []
     for itemset_i, items in items_by_itemset.items():
-        if itemset_i < len(sequence):
-            for item in items:
-                sequence[itemset_i].discard(item)
-            if len(sequence[itemset_i]) == 0:
-                itemsets_to_remove.append(itemset_i)
+        for item in items:
+            sequence[itemset_i].discard(item)
+
+        # append empty itemsets to be later removed
+        if len(sequence[itemset_i]) == 0:
+            itemsets_to_remove.append(itemset_i)
 
     # remove empty itemsets
     for itemset_i in sorted(itemsets_to_remove, reverse=True):
@@ -168,7 +169,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, log_loss_threshold=conf.LOG_LOSS_THRESHOLD, use_jaccard_priority=conf.USE_JACCARD_PRIORITY):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -196,9 +197,7 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, lo
 
     Model.set_rocauc(rocauc)
 
-    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta,
-                          iterations_limit=2 ** 30, log_loss_threshold=log_loss_threshold,
-                          use_jaccard_priority=use_jaccard_priority)
+    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=2 ** 30)
     
     print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
@@ -229,7 +228,7 @@ def calculate_item_log_losses(data, log_losses):
     return item_log_losses
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, log_loss_threshold=conf.LOG_LOSS_THRESHOLD, use_jaccard_priority=conf.USE_JACCARD_PRIORITY):
+                iterations_limit=conf.ITERATIONS_NUMBER):
 
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
@@ -246,8 +245,6 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
     node_hashmap[('.')] = root_node
     
-    print(f"Log loss threshold: {log_loss_threshold}")
-    print(f"Use Jaccard priority: {use_jaccard_priority}")
     print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
