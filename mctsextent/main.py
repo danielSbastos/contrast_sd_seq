@@ -35,7 +35,7 @@ def best_child(node):
     max_score = -float("inf")
 
     for child in node.children:
-        current_ucb = child.get_normalized_quality(conf.QUALITY_MEASURE) / child.number_visits + 0.5 * math.sqrt(
+        current_ucb = child.get_normalized_quality() / child.number_visits + 0.5 * math.sqrt(
             2 * math.log(node.number_visits) / child.number_visits)
         
         if current_ucb > max_score and not child.is_dead_end():
@@ -60,18 +60,32 @@ def select(node):
     return 'finished'
 
 
-def roll_out(node, data, target_class, item_log_losses=None, quality_measure=conf.QUALITY_MEASURE):
+def roll_out(node, data, target_class, item_log_losses=None):
     """
     Generalize a sequence by deleting items (weighted by log loss or random)
     :param node: the node corresponding to the sequence to generalize
     :param data:
     :param target_class:
-    :param item_log_losses: dict mapping item -> average log loss
-    :param quality_measure:
     :return: the new sequence and its quality
     """
     sequence = copy.deepcopy(node.intent)
     sequence = sequence_immutable_to_mutable(sequence)
+
+    if not conf.USE_WEIGHTED_ROLLOUT:
+        seq_items_nb = len([i for j_set in sequence for i in j_set])
+        z = random.randint(0, seq_items_nb)
+        for _ in range(z):
+            chosen_itemset_i = random.randint(0, len(sequence) - 1)
+            chosen_itemset = sequence[chosen_itemset_i]
+
+            chosen_itemset.remove(random.sample(chosen_itemset, 1)[0])
+
+            if len(chosen_itemset) == 0:
+                sequence.pop(chosen_itemset_i)
+
+        reward = compute_quality(data, sequence, target_class)
+        return sequence, reward
+
 
     if not sequence: return sequence, 1
 
@@ -129,7 +143,7 @@ def roll_out(node, data, target_class, item_log_losses=None, quality_measure=con
     for itemset_i in sorted(itemsets_to_remove, reverse=True):
         sequence.pop(itemset_i)
 
-    reward = compute_quality(data, sequence, target_class, quality_measure=quality_measure)
+    reward = compute_quality(data, sequence, target_class)
     return sequence, reward
 
 
@@ -191,12 +205,8 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, lo
 
     return decode_sequences(results, encoding_to_items)
 
-
-def extend_cover_minsup_rel(data, minsup, extend):
-    return len(extend) >= (len(data) * minsup) 
-
-def extend_cover_minsup_abs(extend, minsup):
-    return len(extend) >= minsup
+def extend_cover_minsup_abs(extend):
+    return len(extend) >= conf.MIN_SUPPORT
 
 def calculate_item_log_losses(data, log_losses):
     item_loss_sums = {}
@@ -219,8 +229,7 @@ def calculate_item_log_losses(data, log_losses):
     return item_log_losses
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE, 
-                log_loss_threshold=conf.LOG_LOSS_THRESHOLD, use_jaccard_priority=conf.USE_JACCARD_PRIORITY):
+                iterations_limit=conf.ITERATIONS_NUMBER, log_loss_threshold=conf.LOG_LOSS_THRESHOLD, use_jaccard_priority=conf.USE_JACCARD_PRIORITY):
 
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
@@ -234,7 +243,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     print(f"Calculated log losses for {len(item_log_losses)} items")
 
     node_hashmap = {}
-    root_node = Node(None, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold, use_jaccard_priority=use_jaccard_priority)
+    root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
     node_hashmap[('.')] = root_node
     
     print(f"Log loss threshold: {log_loss_threshold}")
@@ -251,16 +260,16 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand, _ = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
+        node_expand, _ = node_sel.expand(data, log_losses, target_class)
 
-        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend, 10):
+        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
             quality = node_expand.quality - math.log(len(node_expand.intent) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
-        sequence_reward, reward = roll_out(node_expand, data, target_class, item_log_losses=item_log_losses, quality_measure=quality_measure)
+        sequence_reward, reward = roll_out(node_expand, data, target_class, item_log_losses=item_log_losses)
 
-        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold, use_jaccard_priority=use_jaccard_priority)
-        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
+        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
+        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
             reward -= math.log(len(sequence_reward) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 

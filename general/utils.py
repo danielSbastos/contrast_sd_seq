@@ -298,14 +298,13 @@ def extract_l_max(data):
         lmax = max(lmax, k_length(line))
     return lmax
 
-
 def roc_auc_score_binary(y_trues, confidences):
     if len(set(y_trues)) < 2:
         return np.nan
     else:
         return roc_auc_score(y_trues, confidences)
 
-def get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class):
+def get_quality(support, data, extend_target_class):
     y_trues = [item[0] for item in extend_target_class]
     confidences = [item[1] for item in extend_target_class]
 
@@ -359,11 +358,9 @@ def print_rocket_league(patterns):
         print('Quality: {}, Pattern: {}'.format(quality, pattern_display))
 
 
-def compute_quality(data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
+def compute_quality(data, subsequence, target_class):
     seqscout.global_var.increase_it_number()
     support = 0
-    class_pattern_count = 0
-    class_data_count = 0
     extend = []
 
     for i, sequence in enumerate(data):
@@ -374,18 +371,16 @@ def compute_quality(data, subsequence, target_class, quality_measure=conf.QUALIT
             extend.append(i)
     
     extend_target_class = target_class[extend]
-    return get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)[0]
+    return get_quality(support, data, extend_target_class)[0]
 
 
-def compute_quality_extend(data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
+def compute_quality_extend(data, subsequence, target_class):
     '''
     :return: the quality and the extend of positives elements
     '''
     seqscout.global_var.increase_it_number()
     extend = []
     support = 0
-    class_pattern_count = 0
-    class_data_count = 0
 
     for i, sequence in enumerate(data):
         sequence = sequence[1:]
@@ -394,7 +389,7 @@ def compute_quality_extend(data, subsequence, target_class, quality_measure=conf
             extend.append(i)
 
     extend_target_class = target_class[extend]
-    quality, rocauc = get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class)
+    quality, rocauc = get_quality(support, data, extend_target_class)
     
     return quality, rocauc, extend
 

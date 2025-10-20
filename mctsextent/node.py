@@ -5,25 +5,21 @@ from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quali
 
 
 class Node():
-    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE, log_loss_threshold=conf.LOG_LOSS_THRESHOLD, use_jaccard_priority=conf.USE_JACCARD_PRIORITY):
+    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap):
         '''
         :param added_object:
         :param extend: identifiers of objects
         :param parent:
         :param data:
         :param target_class:
-        :param log_loss_threshold: minimum log_loss value for a sequence to be considered as expansion candidate
-        :param use_jaccard_priority: if True, use hybrid sampling (jaccard + log_loss)
         '''
 
         self.intent = intent
         self.data = data
         self.node_hashmap = node_hashmap
         self.depth = 0 if parent is None else parent.depth + 1
-        self.log_loss_threshold = log_loss_threshold
-        self.use_jaccard_priority = use_jaccard_priority
 
-        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
+        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class)
 
         if parent != None:
             self.parents = [parent]
@@ -38,23 +34,20 @@ class Node():
         candidate_sequences_expand = self.compute_sequence_expand(data) # dataset sequences to expand
 
         for idx, seq in candidate_sequences_expand:
-            if log_losses[idx] >= self.log_loss_threshold:
+            if log_losses[idx] >= conf.LOG_LOSS_THRESHOLD:
                 self.candidate_sequences_expand.append(seq)
                 self.log_losses.append(log_losses[idx])
 
         self.number_visits = 1
         self.dead_end = False
 
-    def get_normalized_quality(self, quality_measure=conf.QUALITY_MEASURE):
-        if quality_measure == 'WRAcc':
-            return (self.quality + 0.25) * 2
-        else:
-            return self.quality
+    def get_normalized_quality(self):
+        return self.quality
 
-    def get_extend_and_quality(self, data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
+    def get_extend_and_quality(self, data, subsequence, target_class):
         if self.intent == None:
             return 0, -1, []
-        return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
+        return compute_quality_extend(data, subsequence, target_class)
 
     def compute_sequence_expand(self, data):
         # If root node (intent is None), consider all sequences
@@ -105,8 +98,8 @@ class Node():
         self.dead_end = True
         return True
 
-    def expand(self, data, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
-        if self.use_jaccard_priority and self.intent is not None:
+    def expand(self, data, log_losses, target_class):
+        if conf.USE_JACCARD_PRIORITY and self.intent is not None:
             jaccard_scores = [jaccard_similarity(self.intent, seq) for seq in self.candidate_sequences_expand]
 
             norm_jaccard = normalize_scores(jaccard_scores)
@@ -133,7 +126,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure, log_loss_threshold=self.log_loss_threshold, use_jaccard_priority=self.use_jaccard_priority)
+            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap)
             self.node_hashmap[sequence_children] = child
 
         return child, selected_log_loss
