@@ -1,4 +1,5 @@
 import copy
+import random
 
 import general.conf as conf
 
@@ -305,77 +306,26 @@ def roc_auc_score_binary(y_trues, confidences):
         return roc_auc_score(y_trues, confidences)
 
 def get_quality(quality_measure, class_pattern_count, support, data, class_data_count, extend, extend_target_class):
-    if quality_measure == 'ROCAUC':
-        y_trues = [item[0] for item in extend_target_class]
-        confidences = [item[1] for item in extend_target_class]
+    y_trues = [item[0] for item in extend_target_class]
+    confidences = [item[1] for item in extend_target_class]
 
-        if Model.is_multiclass():
-            rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = Model.get_labels())
-        else:
-            rocauc = roc_auc_score_binary(y_trues, confidences)
-
-        if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
-            return -1, -1
-
-        x = Model.get_rocauc() - rocauc
-        s_rel = support/(len(data))
-        s = support
-
-        if s == 1: return (-1, -1)
-
-        f = (1/(1-x))**s_rel
-
-        return f, rocauc
-
-    elif quality_measure == 'WRAcc':
-        # we find the number of elements who have the right target_class
-        try:
-            class_pattern_ratio = class_pattern_count / support
-        except ZeroDivisionError:
-            return -0.25
-
-        class_data_ratio = class_data_count / len(data)
-        wracc = support / len(data) * (class_pattern_ratio - class_data_ratio)
-        return wracc
-
-    elif quality_measure == 'Informedness':
-        tn = len(data) - support - (class_data_count - class_pattern_count)
-        tpr = class_pattern_count / (class_pattern_count + (class_data_count - class_pattern_count))
-        tnr = tn / (support - class_pattern_count + tn)
-        return tnr + tpr - 1
-
-    elif quality_measure == 'F1':
-        try:
-            class_pattern_ratio = class_pattern_count / support
-        except ZeroDivisionError:
-            return 0
-        precision = class_pattern_ratio
-        recall = class_pattern_count / class_data_count
-        try:
-            f1 = 2 * precision * recall / (precision + recall)
-        except ZeroDivisionError:
-            f1 = 0
-        return f1
-    elif quality_measure == 'Precision':
-        try:
-            if support > conf.PRECISION_MIN_SUPPORT:
-                precision = class_pattern_count / support
-            else:
-                return 0
-        except ZeroDivisionError:
-            return 0
-        return precision
-    elif quality_measure == 'Lift':
-        try:
-            if support > conf.PRECISION_MIN_SUPPORT:
-                return class_pattern_count * len(data) / (class_data_count * support)
-            else:
-                return 0
-        except ZeroDivisionError:
-            return 0
+    if Model.is_multiclass():
+        rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = Model.get_labels())
     else:
-        raise ValueError('The quality measure name is not valid')
+        rocauc = roc_auc_score_binary(y_trues, confidences)
 
+    if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
+        return -1, -1
+
+    x = Model.get_rocauc() - rocauc
+    s_rel = support/(len(data))
+    s = support
+
+    if s == 1: return (-1, -1)
+
+    f = (1/(1-x))**s_rel
+
+    return f, rocauc
 
 def compute_support(data, subsequence):
     support = 0
@@ -537,12 +487,53 @@ def backtrack_all_LCS(C, seq1, seq2, i, j):
     return lcs
 
 def calculate_log_losses(target_class):
+    i = 0
     log_losses = []
     for y_true, confidence in target_class:
         labels = set(target_class[:, 0])
         log_losses.append(log_loss([y_true], [confidence], labels=list(labels)))
+        if i % 1000 == 0:
+            print(i)
+        i+=1
 
     return log_losses
 
 def filter_empty_sequences(data):
     return [i for i in data if len(i[1:]) > 0]
+
+def get_idx_from_cumulative_prop(items):
+    losses = [loss for loss in items]
+    total_sum = sum(losses)
+    cumulative_probs = []
+    cumulative_sum = 0
+    for loss in losses:
+        cumulative_sum += loss
+        cumulative_probs.append(cumulative_sum)
+
+    random_object_idx = None
+    rand_num = random.uniform(0, total_sum)
+    for i, cumulative in enumerate(cumulative_probs):
+        if rand_num < cumulative:
+            random_object_idx = i
+            break
+
+    return random_object_idx
+
+def jaccard_similarity(sequence1, sequence2):
+    set1 = set(sequence_mutable_to_immutable(sequence1))
+    set2 = set(sequence_mutable_to_immutable(sequence2))
+
+    intersection = set1.intersection(set2)
+    union = set1.union(set2)
+
+    return len(intersection) / len(union)
+
+def normalize_scores(scores):
+    min_j = min(scores)
+    max_j = max(scores)
+    j_range = max_j - min_j
+
+    if j_range > 0:
+        return [(j - min_j) / j_range for j in scores]
+
+    return [0.5] * len(scores)
