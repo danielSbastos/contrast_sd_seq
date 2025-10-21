@@ -5,16 +5,15 @@ import sys
 import random
 import copy
 import math
-import matplotlib.pyplot as plt
 
 from sklearn.metrics import roc_auc_score
 
 import general.conf as conf
 
-from general.reader import read_data_kosarak, read_data
+from general.reader import read_data_kosarak
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
-    encode_data, print_results_decode, extract_items, decode_sequences
+    encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -30,14 +29,13 @@ def best_child(node):
     :return:
     """
     if node.is_dead_end() and len(node.parents) == 0:
-        # root is a dead end, we have finished
         return 'finished'
 
     best_node = None
     max_score = -float("inf")
 
     for child in node.children:
-        current_ucb = child.get_normalized_quality(conf.QUALITY_MEASURE) / child.number_visits + 0.5 * math.sqrt(
+        current_ucb = child.get_normalized_quality() / child.number_visits + 0.5 * math.sqrt(
             2 * math.log(node.number_visits) / child.number_visits)
         
         if current_ucb > max_score and not child.is_dead_end():
@@ -45,7 +43,6 @@ def best_child(node):
             best_node = child
 
     if best_node == None:
-        # if program reaches here, the node is a dead_end, we go to the parent
         return node.parents[0]
 
     return best_node
@@ -63,33 +60,91 @@ def select(node):
     return 'finished'
 
 
-def roll_out(node, data, target_class, quality_measure=conf.QUALITY_MEASURE):
+def roll_out(node, data, target_class, item_log_losses=None):
     """
-    Generalize a sequence by deleting random items
+    Generalize a sequence by deleting items (weighted by log loss or random)
     :param node: the node corresponding to the sequence to generalize
     :param data:
     :param target_class:
-    :param quality_measure:
     :return: the new sequence and its quality
     """
     sequence = copy.deepcopy(node.intent)
     sequence = sequence_immutable_to_mutable(sequence)
 
-    # we remove z items randomly
+    if not conf.USE_WEIGHTED_ROLLOUT:
+        seq_items_nb = len([i for j_set in sequence for i in j_set])
+        z = random.randint(0, seq_items_nb)
+        for _ in range(z):
+            chosen_itemset_i = random.randint(0, len(sequence) - 1)
+            chosen_itemset = sequence[chosen_itemset_i]
+
+            chosen_itemset.remove(random.sample(chosen_itemset, 1)[0])
+
+            if len(chosen_itemset) == 0:
+                sequence.pop(chosen_itemset_i)
+
+        reward = compute_quality(data, sequence, target_class)
+        return sequence, reward
+
+
+    if not sequence: return sequence, 1
+
     seq_items_nb = len([i for j_set in sequence for i in j_set])
+    z = random.randint(0, seq_items_nb - 1 if seq_items_nb else seq_items_nb)
 
-    z = random.randint(0, seq_items_nb)
+    item_candidates = []
+    for itemset_i, itemset in enumerate(sequence):
+        for item in itemset:
+            log_loss = item_log_losses[item]
+            removal_prob = 1.0 / (1.0 + log_loss)
+            item_candidates.append((itemset_i, item, removal_prob))
 
-    for _ in range(z):
-        chosen_itemset_i = random.randint(0, len(sequence) - 1)
-        chosen_itemset = sequence[chosen_itemset_i]
+    probs = [prob for _, _, prob in item_candidates]
+    min_prob = min(probs)
+    max_prob = max(probs)
+    prob_range = max_prob - min_prob
 
-        chosen_itemset.remove(random.sample(chosen_itemset, 1)[0])
+    if prob_range > 0:
+        n_probs = [(p - min_prob) / prob_range for p in probs]
+    else:
+        n_probs = probs
 
-        if len(chosen_itemset) == 0:
-            sequence.pop(chosen_itemset_i)
+    n_item_candidates = []
+    for (itemset_idx, item, _), n_prob in zip(item_candidates, n_probs):
+        n_item_candidates.append((itemset_idx, item, n_prob))
 
-    reward = compute_quality(data, sequence, target_class, quality_measure=quality_measure)
+    items_to_remove = []
+    available_candidates = n_item_candidates.copy()
+
+    for _ in range(min(z, len(available_candidates))):
+        probs = [prob for _, _, prob in available_candidates]
+        chosen_idx = get_idx_from_cumulative_prop(probs) or 0
+
+        itemset_i, item, _ = available_candidates.pop(chosen_idx)
+        items_to_remove.append((itemset_i, item))
+
+    # remove selected items from sequence
+    items_by_itemset = {}
+    for itemset_i, item in items_to_remove:
+        if itemset_i not in items_by_itemset:
+            items_by_itemset[itemset_i] = []
+        items_by_itemset[itemset_i].append(item)
+
+    # remove items and track which itemsets become empty
+    itemsets_to_remove = []
+    for itemset_i, items in items_by_itemset.items():
+        for item in items:
+            sequence[itemset_i].discard(item)
+
+        # append empty itemsets to be later removed
+        if len(sequence[itemset_i]) == 0:
+            itemsets_to_remove.append(itemset_i)
+
+    # remove empty itemsets
+    for itemset_i in sorted(itemsets_to_remove, reverse=True):
+        sequence.pop(itemset_i)
+
+    reward = compute_quality(data, sequence, target_class)
     return sequence, reward
 
 
@@ -100,12 +155,6 @@ def update(node, reward):
     :param reward: the reward we got
     :return: None
     """
-    # with python we have a limit to the recursive approach. We will do it with a BFS
-    # node.update(reward)
-    #
-    # for parent in node.parents:
-    #     if parent != None:
-    #         update(parent, reward)
 
     update_nodes = {node}
     parents_seen = set()
@@ -120,7 +169,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -148,44 +197,58 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, lo
 
     Model.set_rocauc(rocauc)
 
-    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta,
-                          iterations_limit=2 ** 30, log_loss_threshold=log_loss_threshold)
+    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=2 ** 30)
     
     print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
 
     return decode_sequences(results, encoding_to_items)
 
+def extend_cover_minsup_abs(extend):
+    return len(extend) >= conf.MIN_SUPPORT
 
-def extend_cover_minsup_rel(data, minsup, extend):
-    return len(extend) >= (len(data) * minsup) 
+def calculate_item_log_losses(data, log_losses):
+    item_loss_sums = {}
+    item_counts = {}
 
-def extend_cover_minsup_abs(extend, minsup):
-    return len(extend) >= minsup
+    for i, sequence in enumerate(data):
+        loss = log_losses[i]
+        for itemset in sequence[1:]:
+            for item in itemset:
+                if item not in item_loss_sums:
+                    item_loss_sums[item] = 0
+                    item_counts[item] = 0
+                item_loss_sums[item] += loss
+                item_counts[item] += 1
+
+    item_log_losses = {}
+    for item in item_loss_sums:
+        item_log_losses[item] = item_loss_sums[item] / item_counts[item]
+
+    return item_log_losses
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, quality_measure=conf.QUALITY_MEASURE, 
-                log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
+                iterations_limit=conf.ITERATIONS_NUMBER):
+
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
     log_losses = calculate_log_losses(target_class)
     data = filter_empty_sequences(data)
 
-    if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in lenght")
+    if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in length")
+
+    item_log_losses = calculate_item_log_losses(data, log_losses)
+    print(f"Calculated log losses for {len(item_log_losses)} items")
 
     node_hashmap = {}
-    root_node = Node(None, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
+    root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
     node_hashmap[('.')] = root_node
     
-    print(f"Log loss threshold: {log_loss_threshold}")
     print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
-    
-    log_losses_over_time = []
-    iteration_numbers = []
 
     while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit:
         node_sel = select(root_node)
@@ -194,47 +257,23 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand, selected_log_loss = node_sel.expand(data, log_losses, target_class, quality_measure=quality_measure)
-        
-        log_losses_over_time.append(selected_log_loss)
-        iteration_numbers.append(iteration_count)
+        node_expand, _ = node_sel.expand(data, log_losses, target_class)
 
-        if node_expand.quality != -1 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend, 10):
-            quality = node_expand.quality - math.log(len(node_expand.intent))
+        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
+            quality = node_expand.quality - math.log(len(node_expand.intent) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
-        sequence_reward, reward = roll_out(node_expand, data, target_class, quality_measure=quality_measure)
+        sequence_reward, reward = roll_out(node_expand, data, target_class, item_log_losses=item_log_losses)
 
-        # FIXME: This is a workaround to recalculate the extend from the sequence_reward
-        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap, log_loss_threshold=log_loss_threshold)
-        if reward_node.quality != -1 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend, 10):
-            reward -= math.log(len(sequence_reward))
+        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
+        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
+            reward -= math.log(len(sequence_reward) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
 
         iteration_count += 1
 
-
     print('Number iteration mcts: {}'.format(iteration_count))
 
     return sorted_patterns.get_top_k_non_redundant(data, top_k)
-
-
-if __name__ == '__main__':
-#    results = get_patterns(path='../data/figures_rc.dat', target_class='1', top_k=10, theta=0.5)
-    get_patterns(path='./data/skating.data', target_path='./data/emm_skating.csv', time_budget=10, top_k=10, theta=0.5)
-    ''' 
-    DATA = read_data_kosarak('../data/figures_rc.dat')
-
-    # DATA, kmeans = readECG()
-    # DATA, kmeans = read_gun_point()
-
-    target_class = '4'
-
-    # launch_mcts_ts(DATA, target_class, kmeans)
-    results = launch_mcts(DATA, target_class, top_k=3, iterations_limit=20000)
-
-    # print_results(results)
-    print_rocket_league(results)
-    '''

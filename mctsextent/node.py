@@ -1,29 +1,25 @@
 import general.conf as conf
 
-import random
-
-from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, is_subsequence
-
+from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, \
+    is_subsequence, get_idx_from_cumulative_prop, jaccard_similarity, normalize_scores
 
 
 class Node():
-    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap, quality_measure=conf.QUALITY_MEASURE, log_loss_threshold=conf.LOG_LOSS_THRESHOLD):
+    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap):
         '''
         :param added_object:
         :param extend: identifiers of objects
         :param parent:
         :param data:
         :param target_class:
-        :param log_loss_threshold: minimum log_loss value for a sequence to be considered as expansion candidate
         '''
 
         self.intent = intent
         self.data = data
         self.node_hashmap = node_hashmap
-        self.log_loss_threshold = log_loss_threshold
+        self.depth = 0 if parent is None else parent.depth + 1
 
-        # the extend is the id of sequences
-        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class, quality_measure=quality_measure)
+        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class)
 
         if parent != None:
             self.parents = [parent]
@@ -38,34 +34,25 @@ class Node():
         candidate_sequences_expand = self.compute_sequence_expand(data) # dataset sequences to expand
 
         for idx, seq in candidate_sequences_expand:
-            if log_losses[idx] >= log_loss_threshold:
+            if log_losses[idx] >= conf.LOG_LOSS_THRESHOLD:
                 self.candidate_sequences_expand.append(seq)
                 self.log_losses.append(log_losses[idx])
 
         self.number_visits = 1
         self.dead_end = False
 
-    def get_normalized_quality(self, quality_measure=conf.QUALITY_MEASURE):
-        if quality_measure == 'WRAcc':
-            return (self.quality + 0.25) * 2
-        else:
-            return self.quality
+    def get_normalized_quality(self):
+        return self.quality
 
-    def get_extend_and_quality(self, data, subsequence, target_class, quality_measure=conf.QUALITY_MEASURE):
+    def get_extend_and_quality(self, data, subsequence, target_class):
         if self.intent == None:
             return 0, -1, []
-        return compute_quality_extend(data, subsequence, target_class, quality_measure=quality_measure)
+        return compute_quality_extend(data, subsequence, target_class)
 
     def compute_sequence_expand(self, data):
         # If root node (intent is None), consider all sequences
         if self.intent is None:
             return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend]
-
-        # For non-root nodes: only expand with sequences that contain ALL elements from the intent
-        # this prevents losing key pattern elements (especially rare ones) during LCS operations
-        intent_elements = set()
-        for itemset in self.intent:
-            intent_elements.update(itemset)
 
         candidates = []
         for i, seq in enumerate(data):
@@ -81,14 +68,7 @@ class Node():
             except TypeError:
                 pass
 
-            # get all elements in this sequence
-            sequence_elements = set()
-            for itemset in sequence:
-                sequence_elements.update(itemset)
-
-            # lnly include if sequence contains ALL elements from intent
-            if intent_elements.issubset(sequence_elements):
-                candidates.append([i, sequence])
+            candidates.append([i, sequence])
 
         return candidates
 
@@ -109,35 +89,29 @@ class Node():
             return True
 
         if not self.is_fully_expanded():
-            # a node non-fully expanded is not a dead end
             return False
 
         for child in self.children:
-            # improving time computing
             if not child.is_dead_end():
                 return False
 
         self.dead_end = True
         return True
 
-    def expand(self, data, log_losses, target_class, quality_measure=conf.QUALITY_MEASURE):
-        losses = [loss for loss in self.log_losses]
-        total_sum = sum(losses)
-        cumulative_probs = []
-        cumulative_sum = 0
-        for loss in losses:
-            cumulative_sum += loss
-            cumulative_probs.append(cumulative_sum)
+    def expand(self, data, log_losses, target_class):
+        if conf.USE_JACCARD_PRIORITY and self.intent is not None:
+            jaccard_scores = [jaccard_similarity(self.intent, seq) for seq in self.candidate_sequences_expand]
 
-        random_object_idx = None
-        rand_num = random.uniform(0, total_sum)
-        for i, cumulative in enumerate(cumulative_probs):
-            if rand_num < cumulative:
-                random_object_idx = i
-                break
+            norm_jaccard = normalize_scores(jaccard_scores)
+            norm_log_losses = normalize_scores(self.log_losses)
 
+            weights = [norm_jaccard[i] * norm_log_losses[i] for i in range(len(self.candidate_sequences_expand))]
+        else:
+            weights = self.log_losses
+
+        random_object_idx = get_idx_from_cumulative_prop(weights)
         random_object = self.candidate_sequences_expand[random_object_idx]
-        selected_log_loss = losses[random_object_idx]
+        selected_log_loss = self.log_losses[random_object_idx]
 
         self.candidate_sequences_expand.pop(random_object_idx)
         self.log_losses.pop(random_object_idx)
@@ -152,7 +126,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap, quality_measure=quality_measure, log_loss_threshold=self.log_loss_threshold)
+            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap)
             self.node_hashmap[sequence_children] = child
 
         return child, selected_log_loss
