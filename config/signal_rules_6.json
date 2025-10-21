@@ -1,17 +1,22 @@
 [
     {
       "element": "A",
-      "quantity": 70,
+      "quantity": 30,
       "target_auc": 0.60
     },
     {
       "element": "B",
-      "quantity": 60,
+      "quantity": 20,
       "target_auc": 0.70
     },
     {
       "element": "C D",
-      "quantity": 40,
+      "quantity": 15,
+      "target_auc": 0.65
+    },
+    {
+      "element": "{E F}",
+      "quantity": 50,
       "target_auc": 0.65
     }
   ]
