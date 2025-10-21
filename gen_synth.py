@@ -28,7 +28,25 @@ def save_dataframe_to_csv(df, filename="data/synth.csv"):
 
 def main():
     # --- 1. Configuração e Carregamento de Dados ---
-    args = parse_arguments()
+    parser = argparse.ArgumentParser(description="Gerador de sequências com AUC alvo")
+    parser.add_argument("--gauc", type=float, required=True, help="Target AUC para o conjunto final")
+    parser.add_argument("--voc", type=str, required=True, help="Caminho para o vocabulário")
+    parser.add_argument("--sig", type=str, required=True, help="Caminho para o arquivo de regras")
+    parser.add_argument("--maxseq", type=int, default=1000, help="Número máximo de sequências permitido")
+    parser.add_argument("--gen-itemsets", action='store_true', help="Se especificado, gera itemsets aleatórios no ruído de fundo.")
+    
+    # --- ARGUMENTO MODIFICADO ---
+    parser.add_argument(
+        "--noise-density", 
+        type=float, 
+        default=1.0, 
+        help="Densidade do ruído (0.0 a 1.0). 1.0 = denso (padrões aleatórios se formam). 0.0 = esparso (itens de ruído são únicos)."
+    )
+    args = parser.parse_args()
+    
+    # Validação da nova flag
+    if not 0.0 <= args.noise_density <= 1.0:
+        raise ValueError("--noise-density deve estar entre 0.0 e 1.0")
 
     GLOBAL_AUC_X = args.gauc
     VOCABULARY = load_vocabulary(args.voc)
@@ -42,9 +60,7 @@ def main():
     # --- 2. Geração dos Subconjuntos de "Sinal" ---
     df_list = []
     for rule in signal_rules:
-        element = rule['element']
-        quantity = rule['quantity']
-        target_auc = rule['target_auc']
+        element, quantity, target_auc = rule['element'], rule['quantity'], rule['target_auc']
         
         print(f"Gerando subconjunto com elemento '{element}' e AUC alvo de {target_auc}...")
         df_rule = generate_sequences_with_scores(
@@ -52,7 +68,8 @@ def main():
             target_auc=target_auc,
             base_element=element,
             vocabulary=CLEANED_VOCABULARY,
-            allow_itemsets=args.gen_itemsets
+            allow_itemsets=args.gen_itemsets,
+            noise_density=args.noise_density
         )
         
         auc_actual = roc_auc_score(df_rule['y_true'], df_rule['confidence'])
@@ -67,16 +84,17 @@ def main():
         df_subsets=df_rules_concatenated,
         n_remainder=N_REMAINDER,
         vocabulary=CLEANED_VOCABULARY,
-        allow_itemsets=args.gen_itemsets
+        allow_itemsets=args.gen_itemsets,
+        noise_density=args.noise_density  # Passa a nova flag
     )
 
-    # --- 4. Verificação dos Resultados ---
+    # --- 4. Verificação e Salvamento ---
     verify_and_print_results(df_final, signal_rules, GLOBAL_AUC_X)
-
-    # --- 5. Salvando os Dados ---
     sequences = df_final['sequence']
-    save_sequences_to_file(sequences, filename="data/synth.dat")
-    save_dataframe_to_csv(df_final, filename="data/synth.csv")
+    np.savetxt("data/synth.dat", sequences, fmt="%s")
+    print("\nSequências salvas em 'data/synth.dat'")
+    df_final.to_csv("data/synth.csv", index=False)
+    print("Dataset final salvo em 'data/synth.csv'")
 
 if __name__ == "__main__":
     main()
