@@ -531,4 +531,4 @@ def normalize_scores(scores):
     if j_range > 0:
         return [(j - min_j) / j_range for j in scores]
 
-    return [0.5] * len(scores)
+    return [1] * len(scores)
