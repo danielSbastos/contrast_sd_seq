@@ -9,11 +9,13 @@ import math
 from sklearn.metrics import roc_auc_score
 
 import general.conf as conf
+import functools
 
 from general.reader import read_data_kosarak
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
-    encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop
+    encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
+    compute_sequence_expand
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -60,7 +62,10 @@ def select(node):
     return 'finished'
 
 
-def roll_out(node, data, target_class, item_log_losses=None):
+computed_rollouts = {}
+
+
+def roll_out(node, item_log_losses=None):
     """
     Generalize a sequence by deleting items (weighted by log loss or random)
     :param node: the node corresponding to the sequence to generalize
@@ -70,22 +75,6 @@ def roll_out(node, data, target_class, item_log_losses=None):
     """
     sequence = copy.deepcopy(node.intent)
     sequence = sequence_immutable_to_mutable(sequence)
-
-    if not conf.USE_WEIGHTED_ROLLOUT:
-        seq_items_nb = len([i for j_set in sequence for i in j_set])
-        z = random.randint(0, seq_items_nb)
-        for _ in range(z):
-            chosen_itemset_i = random.randint(0, len(sequence) - 1)
-            chosen_itemset = sequence[chosen_itemset_i]
-
-            chosen_itemset.remove(random.sample(chosen_itemset, 1)[0])
-
-            if len(chosen_itemset) == 0:
-                sequence.pop(chosen_itemset_i)
-
-        reward = compute_quality(data, sequence, target_class)
-        return sequence, reward
-
 
     if not sequence: return sequence, 1
 
@@ -144,7 +133,13 @@ def roll_out(node, data, target_class, item_log_losses=None):
     for itemset_i in sorted(itemsets_to_remove, reverse=True):
         sequence.pop(itemset_i)
 
-    reward = compute_quality(data, sequence, target_class)
+    immutable_sequence = tuple(sequence_mutable_to_immutable(sequence))
+    if computed_rollouts.get(immutable_sequence, 0) > 5 and z > 0:
+        return roll_out(node, item_log_losses)
+    else:
+        computed_rollouts[immutable_sequence] = computed_rollouts.get(immutable_sequence, 0) + 1
+
+    reward, _, _ = compute_quality(immutable_sequence)
     return sequence, reward
 
 
@@ -213,7 +208,7 @@ def calculate_item_log_losses(data, log_losses):
 
     for i, sequence in enumerate(data):
         loss = log_losses[i]
-        for itemset in sequence[1:]:
+        for itemset in sequence:
             for item in itemset:
                 if item not in item_loss_sums:
                     item_loss_sums[item] = 0
@@ -236,13 +231,17 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     log_losses = calculate_log_losses(target_class)
     data = filter_empty_sequences(data)
 
+    Model.set_target_class(target_class)
+    Model.set_log_losses(log_losses)
+    Model.set_data(data)
+
     if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in length")
 
     item_log_losses = calculate_item_log_losses(data, log_losses)
     print(f"Calculated log losses for {len(item_log_losses)} items")
 
     node_hashmap = {}
-    root_node = Node(None, None, data, log_losses, target_class, node_hashmap)
+    root_node = Node(None, None, node_hashmap)
     node_hashmap[('.')] = root_node
     
     print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
@@ -257,23 +256,25 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
             print('Finished')
             break
 
-        node_expand, _ = node_sel.expand(data, log_losses, target_class)
+        node_expand, _ = node_sel.expand()
 
         if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
             quality = node_expand.quality - math.log(len(node_expand.intent) + 2, 10)
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
-        sequence_reward, reward = roll_out(node_expand, data, target_class, item_log_losses=item_log_losses)
+        sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
 
-        reward_node = Node(sequence_reward, None, data, log_losses, target_class, node_hashmap)
+        reward_node = Node(sequence_mutable_to_immutable(sequence_reward), None, node_hashmap)
         if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
             reward -= math.log(len(sequence_reward) + 2, 10)
-            sorted_patterns.add(sequence_mutable_to_immutable(sequence_reward), reward, reward_node.extend, reward_node.rocauc)
+            sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
 
         iteration_count += 1
 
     print('Number iteration mcts: {}'.format(iteration_count))
+    print("compute_quality: ", compute_quality.cache_info())
+    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
 
     return sorted_patterns.get_top_k_non_redundant(data, top_k)

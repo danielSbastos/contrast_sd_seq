@@ -3,6 +3,7 @@ import random
 
 import general.conf as conf
 
+import functools
 import numpy as np
 from math import e, log
 from sklearn.metrics import roc_auc_score, log_loss
@@ -72,52 +73,6 @@ def create_i_extension(sequence, item, index):
             new_sequence.append(itemset)
 
     return tuple(new_sequence)
-
-
-
-def k_length(sequence):
-    """
-    :param sequence: the considered sequence
-    :return: the length of the sequence
-    """
-    return sum([len(i) for i in sequence])
-
-
-def reduce_k_length(target_length, data):
-    '''
-    Reduce k_length of dataset removing class
-    :param target_length:
-    :param data:
-    :return:
-    '''
-    new_data = []
-    for i, sequence in enumerate(data):
-        if k_length(sequence) > target_length:
-            new_sequence = [sequence[0]]
-
-            count = 0
-
-            # we do not take into account the target
-
-            for itemset in sequence[1:]:
-                itemset_copy = copy.deepcopy(itemset)
-
-                if len(itemset_copy) + count > target_length:
-                    # we need to remove some elements of this itemset
-                    for i in range(len(itemset_copy) + count - target_length):
-                        itemset_copy.remove(max(itemset_copy))
-
-                    if len(itemset_copy) > 0:
-                        new_sequence.append(itemset_copy)
-                    break
-                else:
-                    count += len(itemset_copy)
-                    new_sequence.append(itemset_copy)
-        else:
-            new_sequence = sequence[:]
-
-        new_data.append(new_sequence)
-    return new_data
 
 
 def is_subsequence(a, b):
@@ -292,19 +247,16 @@ def average_results(results):
     return sum_result / len(results)
 
 
-def extract_l_max(data):
-    lmax = 0
-    for line in data:
-        lmax = max(lmax, k_length(line))
-    return lmax
-
 def roc_auc_score_binary(y_trues, confidences):
     if len(set(y_trues)) < 2:
         return np.nan
     else:
         return roc_auc_score(y_trues, confidences)
 
-def get_quality(support, data, extend_target_class):
+def get_quality(support, data, extend):
+    target_class = Model.get_target_class()
+    extend_target_class = target_class[extend]
+
     y_trues = [item[0] for item in extend_target_class]
     confidences = [item[1] for item in extend_target_class]
 
@@ -325,17 +277,6 @@ def get_quality(support, data, extend_target_class):
     f = (1/(1-x))**s_rel
 
     return f, rocauc
-
-def compute_support(data, subsequence):
-    support = 0
-
-    for sequence in data:
-        sequence = sequence[1:]
-
-        if is_subsequence(subsequence, sequence):
-            support += 1
-
-    return support
 
 
 def print_rocket_league(patterns):
@@ -358,40 +299,30 @@ def print_rocket_league(patterns):
         print('Quality: {}, Pattern: {}'.format(quality, pattern_display))
 
 
-def compute_quality(data, subsequence, target_class):
+@functools.lru_cache(maxsize=None)
+def compute_quality(subsequence):
+    data = Model.get_data()
+
     seqscout.global_var.increase_it_number()
+
     support = 0
     extend = []
 
     for i, sequence in enumerate(data):
-        sequence = sequence[1:]
-
-        if is_subsequence(subsequence, sequence):
-            support += 1
-            extend.append(i)
-    
-    extend_target_class = target_class[extend]
-    return get_quality(support, data, extend_target_class)[0]
-
-
-def compute_quality_extend(data, subsequence, target_class):
-    '''
-    :return: the quality and the extend of positives elements
-    '''
-    seqscout.global_var.increase_it_number()
-    extend = []
-    support = 0
-
-    for i, sequence in enumerate(data):
-        sequence = sequence[1:]
         if is_subsequence(subsequence, sequence):
             support += 1
             extend.append(i)
 
-    extend_target_class = target_class[extend]
-    quality, rocauc = get_quality(support, data, extend_target_class)
-    
+    quality, rocauc = get_quality(support, data, extend)
     return quality, rocauc, extend
+
+
+@functools.lru_cache(maxsize=None)
+def compute_sequence_expand(intent, extend):
+    data = Model.get_data()
+    if intent is None:
+        return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend])
+    return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend and not is_subsequence(intent, seq)])
 
 import seqscout.global_var
 
@@ -440,7 +371,7 @@ def find_LCS(seq1, seq2, all=False):
     # now we need to backtrack the structure to get the pattern
     if all:
         all_lcs = backtrack_all_LCS(C, seq1, seq2, len(seq1), len(seq2))
-        return {i[1:] for i in all_lcs}
+        return {i for i in all_lcs}
 
     lcs = []
     backtrack_LCS(C, seq1, seq2, len(seq1), len(seq2), lcs)
@@ -494,7 +425,7 @@ def calculate_log_losses(target_class):
     return log_losses
 
 def filter_empty_sequences(data):
-    return [i for i in data if len(i[1:]) > 0]
+    return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
 def get_idx_from_cumulative_prop(items):
     losses = [loss for loss in items]

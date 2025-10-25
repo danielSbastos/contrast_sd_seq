@@ -1,11 +1,14 @@
 import general.conf as conf
 
-from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality_extend, \
-    is_subsequence, get_idx_from_cumulative_prop, jaccard_similarity, normalize_scores
+from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality, \
+    is_subsequence, get_idx_from_cumulative_prop, jaccard_similarity, normalize_scores, compute_sequence_expand
+
+
+from seqscout.global_var import Model
 
 
 class Node():
-    def __init__(self, intent, parent, data, log_losses, target_class, node_hashmap):
+    def __init__(self, intent, parent, node_hashmap):
         '''
         :param added_object:
         :param extend: identifiers of objects
@@ -15,11 +18,19 @@ class Node():
         '''
 
         self.intent = intent
-        self.data = data
         self.node_hashmap = node_hashmap
         self.depth = 0 if parent is None else parent.depth + 1
 
-        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(data, self.intent, target_class)
+        if self.depth == 0:
+            log_loss_threshold = 0 * conf.LOG_LOSS_THRESHOLD
+        elif self.depth == 1:
+            log_loss_threshold = 0.5 * conf.LOG_LOSS_THRESHOLD
+        elif self.depth == 2:
+            log_loss_threshold = 1 * conf.LOG_LOSS_THRESHOLD
+        elif self.depth >= 3:
+            log_loss_threshold = 1.5 * conf.LOG_LOSS_THRESHOLD
+
+        self.quality, self.rocauc, self.extend = self.get_extend_and_quality(self.intent)
 
         if parent != None:
             self.parents = [parent]
@@ -31,10 +42,14 @@ class Node():
         self.candidate_sequences_expand = []
         self.log_losses = []
 
-        candidate_sequences_expand = self.compute_sequence_expand(data) # dataset sequences to expand
+        if self.intent is not None:
+            candidate_sequences_expand = compute_sequence_expand(tuple(self.intent), tuple(self.extend))
+        else:
+            candidate_sequences_expand = compute_sequence_expand(self.intent, tuple(self.extend))
 
+        log_losses = Model.get_log_losses()
         for idx, seq in candidate_sequences_expand:
-            if log_losses[idx] >= conf.LOG_LOSS_THRESHOLD:
+            if log_losses[idx] >= log_loss_threshold:
                 self.candidate_sequences_expand.append(seq)
                 self.log_losses.append(log_losses[idx])
 
@@ -44,41 +59,17 @@ class Node():
     def get_normalized_quality(self):
         return self.quality
 
-    def get_extend_and_quality(self, data, subsequence, target_class):
+    def get_extend_and_quality(self, subsequence):
         if self.intent == None:
             return 0, -1, []
-        return compute_quality_extend(data, subsequence, target_class)
-
-    def compute_sequence_expand(self, data):
-        # If root node (intent is None), consider all sequences
-        if self.intent is None:
-            return [[i, seq[1:]] for i, seq in enumerate(data) if i not in self.extend]
-
-        candidates = []
-        for i, seq in enumerate(data):
-            if i in self.extend:
-                continue
-
-            sequence = seq[1:]
-
-            # check if sequence is a supersequence of intent (skip if true)
-            try:
-                if is_subsequence(self.intent, sequence):
-                    continue
-            except TypeError:
-                pass
-
-            candidates.append([i, sequence])
-
-        return candidates
-
+        return compute_quality(sequence_mutable_to_immutable(subsequence))
 
     def is_fully_expanded(self):
         return len(self.candidate_sequences_expand) == 0
 
     def is_terminal(self):
         # a node is terminal if all positive sequences have been explored
-        return len(self.extend) == len(self.data)
+        return len(self.extend) == len(Model.get_data())
 
     def is_dead_end(self):
         '''
@@ -98,7 +89,7 @@ class Node():
         self.dead_end = True
         return True
 
-    def expand(self, data, log_losses, target_class):
+    def expand(self):
         if conf.USE_JACCARD_PRIORITY and self.intent is not None:
             jaccard_scores = [jaccard_similarity(self.intent, seq) for seq in self.candidate_sequences_expand]
 
@@ -109,7 +100,7 @@ class Node():
         else:
             weights = self.log_losses
 
-        random_object_idx = get_idx_from_cumulative_prop(weights)
+        random_object_idx = get_idx_from_cumulative_prop(weights) or 0
         random_object = self.candidate_sequences_expand[random_object_idx]
         selected_log_loss = self.log_losses[random_object_idx]
 
@@ -126,7 +117,7 @@ class Node():
             child.parents.append(self)
             self.children.append(child)
         else:
-            child = Node(sequence_children, self, data, log_losses, target_class, self.node_hashmap)
+            child = Node(sequence_children, self, self.node_hashmap)
             self.node_hashmap[sequence_children] = child
 
         return child, selected_log_loss

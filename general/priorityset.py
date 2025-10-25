@@ -8,7 +8,6 @@ def jaccard_measure_misere(sequence1, sequence2, data):
     intersection = 0
     union = 0
     for sequence in data:
-        sequence = sequence[1:]
         sequence = sequence_mutable_to_immutable(sequence)
         seq1 = False
         seq2 = False
