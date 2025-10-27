@@ -9,13 +9,12 @@ import math
 from sklearn.metrics import roc_auc_score
 
 import general.conf as conf
-import functools
 
 from general.reader import read_data_kosarak
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
-    compute_sequence_expand
+    compute_cumulative_probs
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -275,6 +274,6 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     print('Number iteration mcts: {}'.format(iteration_count))
     print("compute_quality: ", compute_quality.cache_info())
-    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
+    print("compute_cumulative_probs: ", compute_cumulative_probs.cache_info())
 
     return sorted_patterns.get_top_k_non_redundant(data, top_k)

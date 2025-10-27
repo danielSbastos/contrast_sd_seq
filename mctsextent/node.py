@@ -1,11 +1,16 @@
 import general.conf as conf
 
+import math
+
 from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality, \
-    is_subsequence, get_idx_from_cumulative_prop, jaccard_similarity, normalize_scores, compute_sequence_expand
+    get_idx_from_cumulative_prop, compute_sequence_expand, normalize_scores, jaccard_similarity
 
 
 from seqscout.global_var import Model
 
+
+PW_C = 1.0
+PW_ALPHA = 0.5
 
 class Node():
     def __init__(self, intent, parent, node_hashmap):
@@ -20,15 +25,6 @@ class Node():
         self.intent = intent
         self.node_hashmap = node_hashmap
         self.depth = 0 if parent is None else parent.depth + 1
-
-        if self.depth == 0:
-            log_loss_threshold = 0 * conf.LOG_LOSS_THRESHOLD
-        elif self.depth == 1:
-            log_loss_threshold = 0.5 * conf.LOG_LOSS_THRESHOLD
-        elif self.depth == 2:
-            log_loss_threshold = 1 * conf.LOG_LOSS_THRESHOLD
-        elif self.depth >= 3:
-            log_loss_threshold = 1.5 * conf.LOG_LOSS_THRESHOLD
 
         self.quality, self.rocauc, self.extend = self.get_extend_and_quality(self.intent)
 
@@ -49,12 +45,23 @@ class Node():
 
         log_losses = Model.get_log_losses()
         for idx, seq in candidate_sequences_expand:
-            if log_losses[idx] >= log_loss_threshold:
+            if log_losses[idx] >= conf.LOG_LOSS_THRESHOLD:
                 self.candidate_sequences_expand.append(seq)
                 self.log_losses.append(log_losses[idx])
 
         self.number_visits = 1
         self.dead_end = False
+
+    def get_max_expansions(self):
+        visits = max(1, self.number_visits)
+        max_visits = math.ceil(PW_C * (visits ** PW_ALPHA))
+        return max_visits
+
+    def is_widening_allowed(self):
+        if len(self.candidate_sequences_expand) == 0:
+            return False
+
+        return len(self.children) < self.get_max_expansions()
 
     def get_normalized_quality(self):
         return self.quality

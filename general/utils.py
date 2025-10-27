@@ -427,14 +427,19 @@ def calculate_log_losses(target_class):
 def filter_empty_sequences(data):
     return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
-def get_idx_from_cumulative_prop(items):
-    losses = [loss for loss in items]
-    total_sum = sum(losses)
+@functools.lru_cache(maxsize=128)
+def compute_cumulative_probs(items_tuple):
     cumulative_probs = []
     cumulative_sum = 0
-    for loss in losses:
+    for loss in items_tuple:
         cumulative_sum += loss
         cumulative_probs.append(cumulative_sum)
+    return cumulative_probs
+
+def get_idx_from_cumulative_prop(items):
+    items_tuple = tuple(items)
+    cumulative_probs = compute_cumulative_probs(items_tuple)
+    total_sum = cumulative_probs[-1] if cumulative_probs else 0
 
     random_object_idx = None
     rand_num = random.uniform(0, total_sum)
@@ -445,6 +450,7 @@ def get_idx_from_cumulative_prop(items):
 
     return random_object_idx
 
+@functools.lru_cache(maxsize=256)
 def jaccard_similarity(sequence1, sequence2):
     set1 = set(sequence_mutable_to_immutable(sequence1))
     set2 = set(sequence_mutable_to_immutable(sequence2))

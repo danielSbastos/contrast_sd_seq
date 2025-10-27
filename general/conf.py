@@ -4,9 +4,8 @@ ITERATIONS_NUMBER = 10000
 TIME_BUDGET = 60
 THETA = 0.8
 MIN_SUPPORT = 10
-LOG_LOSS_THRESHOLD = 0  # only expand sequences with log_loss >= threshold
+LOG_LOSS_THRESHOLD = 0.0  # only expand sequences with log_loss >= threshold
 USE_JACCARD_PRIORITY = True
-USE_WEIGHTED_ROLLOUT = True
 
 # Do not change this value if you do not know what your are doing
 TIME_BUDGET_XP = 2**30
