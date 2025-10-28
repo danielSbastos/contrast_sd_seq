@@ -14,7 +14,7 @@ from general.reader import read_data_kosarak
 from general.utils import sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
-    compute_cumulative_probs
+    compute_cumulative_probs, compute_sequence_expand
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -163,7 +163,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -191,7 +191,7 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1):
 
     Model.set_rocauc(rocauc)
 
-    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=2 ** 30)
+    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=iterations_limit)
     
     print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
@@ -238,6 +238,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     item_log_losses = calculate_item_log_losses(data, log_losses)
     print(f"Calculated log losses for {len(item_log_losses)} items")
+    print(f"JACCARD SIMILARITY: ", conf.USE_JACCARD_PRIORITY)
 
     node_hashmap = {}
     root_node = Node(None, None, node_hashmap)
@@ -263,7 +264,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
 
-        reward_node = Node(sequence_mutable_to_immutable(sequence_reward), None, node_hashmap)
+        reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
         if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
             reward -= math.log(len(sequence_reward) + 2, 10)
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
@@ -275,5 +276,6 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     print('Number iteration mcts: {}'.format(iteration_count))
     print("compute_quality: ", compute_quality.cache_info())
     print("compute_cumulative_probs: ", compute_cumulative_probs.cache_info())
+    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
 
     return sorted_patterns.get_top_k_non_redundant(data, top_k)

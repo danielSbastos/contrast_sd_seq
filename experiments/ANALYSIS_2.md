@@ -118,7 +118,7 @@ The 41% overhead does **NOT** provide better patterns - it just makes each itera
 |--------------|-----------|-----------------|---------|------------|
 | Baseline | 475-495 | ✅ Yes | A, B, 3-seq | Fast, good discovery |
 | Jaccard | 487-497 | ✅ Yes | A, B, 3-seq | Similar to baseline |
-| Weighted | 555-562 | ✅ Yes | B, 3-seq | **+15% FASTER**, good discovery |
+| Weighted | 555-562 | ✅ Yes | B, 3-seq | Good discovery |
 | Both | 541 | ❌ **NO** | Only X | **FAILURE** - only trivial |
 
 #### Time Budget: 300 seconds

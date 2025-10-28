@@ -55,7 +55,7 @@ def generate_sequences_with_scores_iterative(
     INTERNAL_DELIMITER = "|" 
 
     for _ in range(n_samples):
-        seq_length = np.random.randint(15, 30)
+        seq_length = np.random.randint(8, 15)
         
         current_vocab = [v for v in vocabulary if v != base_element]
         
@@ -134,6 +134,7 @@ parser.add_argument("--gauc", type=float, required=True, help="Target AUC para o
 parser.add_argument("--voc", type=str, required=True, help="Caminho para o vocabulário")
 parser.add_argument("--sig", type=str, required=True, help="Caminho para o arquivo de regras")
 parser.add_argument("--maxseq", type=int, default=1000, help="Número máximo de sequências permitido")
+parser.add_argument("--filename", type=str, default="synth_temp", help="Arquivo output")
 
 args = parser.parse_args()
 
@@ -205,7 +206,7 @@ for rule in signal_rules:
 
 # Salvando os dados em um arquivo CSV
 sequences = df_final['sequence']
-np.savetxt("data/synth.dat", sequences, fmt="%s")
+np.savetxt(f"data/{args.filename}.dat", sequences, fmt="%s")
 print("\nSequências salvas em 'data/synth.dat'")
-df_final.to_csv("data/synth.csv", index=False)
+df_final.to_csv(f"data/{args.filename}.csv", index=False)
 print("Dataset final salvo em 'data/synth.csv'")
