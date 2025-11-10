@@ -260,6 +260,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
             quality = node_expand.quality - math.log(len(node_expand.intent) + 2, 10)
+            quality += 1
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
         sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
@@ -267,11 +268,16 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
         if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
             reward -= math.log(len(sequence_reward) + 2, 10)
+            reward += 1
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
 
         update(node_expand, reward)
 
         iteration_count += 1
+
+        if iteration_count % 100 == 0:
+            print(iteration_count)
+
 
     print('Number iteration mcts: {}'.format(iteration_count))
     print("compute_quality: ", compute_quality.cache_info())

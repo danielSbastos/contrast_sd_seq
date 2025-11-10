@@ -1,5 +1,3 @@
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/synth_1_short_seq.dat', target_path='./data/synth_1_short_seq.csv', time_budget=120, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/synth_2_short_seq.dat', target_path='./data/synth_2_short_seq.csv', time_budget=120, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/synth_3_short_seq.dat', target_path='./data/synth_3_short_seq.csv', time_budget=120, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/synth_4_short_seq.dat', target_path='./data/synth_4_short_seq.csv', time_budget=120, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/synth_5_short_seq.dat', target_path='./data/synth_5_short_seq.csv', time_budget=120, top_k=5, theta=0)"
+ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"
+ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"
+ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"

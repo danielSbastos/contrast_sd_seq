@@ -1,0 +1,17 @@
+[
+  {
+    "element": "{A B} {C} {E}",
+    "quantity": 20,
+    "target_auc": 0.80
+  },
+  {
+    "element": "{M} {N M} {N M} {N}",
+    "quantity": 20,
+    "target_auc": 0.75
+  },
+  {
+    "element": "{P R} {Q S} {P R}",
+    "quantity": 20,
+    "target_auc": 0.68
+  }
+]

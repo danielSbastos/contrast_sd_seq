@@ -274,7 +274,7 @@ def get_quality(support, data, extend):
 
     if s == 1: return (-1, -1)
 
-    f = (1/(1-x))**s_rel
+    f = 100 * x**2 * s_rel**0.5
 
     return f, rocauc
 
@@ -299,7 +299,7 @@ def print_rocket_league(patterns):
         print('Quality: {}, Pattern: {}'.format(quality, pattern_display))
 
 
-@functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=512)
 def compute_quality(subsequence):
     data = Model.get_data()
 
@@ -317,7 +317,7 @@ def compute_quality(subsequence):
     return quality, rocauc, extend
 
 
-@functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=512)
 def compute_sequence_expand(intent, extend):
     data = Model.get_data()
     if intent is None:
@@ -427,7 +427,7 @@ def calculate_log_losses(target_class):
 def filter_empty_sequences(data):
     return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
-@functools.lru_cache(maxsize=128)
+@functools.lru_cache(maxsize=512)
 def compute_cumulative_probs(items_tuple):
     cumulative_probs = []
     cumulative_sum = 0
@@ -450,7 +450,7 @@ def get_idx_from_cumulative_prop(items):
 
     return random_object_idx
 
-@functools.lru_cache(maxsize=256)
+@functools.lru_cache(maxsize=512)
 def jaccard_similarity(sequence1, sequence2):
     set1 = set(sequence_mutable_to_immutable(sequence1))
     set2 = set(sequence_mutable_to_immutable(sequence2))

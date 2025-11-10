@@ -7,6 +7,85 @@ from scipy.special import expit
 from sklearn.metrics import roc_auc_score
 from src.file_handler import load_signal_rules, load_vocabulary
 
+
+def parse_pattern_itemsets(pattern_str):
+    """
+    Convert a pattern definition string (e.g. "{A B} {C} {E}") into a list of
+    itemsets where each itemset is represented as a tuple of tokens.
+    """
+    if not pattern_str:
+        return []
+
+    matches = re.findall(r'\{([^}]*)\}', pattern_str)
+    itemsets = []
+
+    if matches:
+        for match in matches:
+            tokens = [token for token in match.strip().split() if token]
+            if tokens:
+                itemsets.append(tuple(tokens))
+    else:
+        tokens = [token for token in pattern_str.strip().split() if token]
+        if tokens:
+            itemsets.append(tuple(tokens))
+
+    return itemsets
+
+
+def format_itemsets_for_sequence(itemsets):
+    """
+    Convert a list of itemsets (tuples of tokens) into the textual format used
+    by the Kosarak-like generator (items separated by spaces).
+    """
+    return [' '.join(itemset) for itemset in itemsets]
+
+
+def sequence_string_to_itemsets(sequence_str):
+    """
+    Convert a generated Kosarak-like string into a list of itemsets (tuples of
+    sorted tokens) for pattern matching.
+    """
+    tokens = sequence_str.split()
+    itemsets = []
+    current_itemset = []
+
+    # Skip the first token which corresponds to the class label
+    for token in tokens[1:]:
+        if token == "-1":
+            if current_itemset:
+                itemsets.append(tuple(sorted(current_itemset)))
+                current_itemset = []
+        elif token == "-2":
+            if current_itemset:
+                itemsets.append(tuple(sorted(current_itemset)))
+            break
+        else:
+            current_itemset.append(token)
+
+    return itemsets
+
+
+def sequence_contains_pattern(sequence_str, pattern_itemsets):
+    """
+    Check whether the sequence string contains the given pattern (as a list of
+    itemsets represented by tuples).
+    """
+    if not pattern_itemsets:
+        return False
+
+    parsed_sequence = sequence_string_to_itemsets(sequence_str)
+    pattern_len = len(pattern_itemsets)
+
+    if pattern_len == 0 or pattern_len > len(parsed_sequence):
+        return False
+
+    for start_idx in range(len(parsed_sequence) - pattern_len + 1):
+        window = parsed_sequence[start_idx:start_idx + pattern_len]
+        if window == pattern_itemsets:
+            return True
+
+    return False
+
 def to_kosarak_format(class_label, sequence_data):
     """
     Converte uma sequência de itemsets para uma string no formato Kosarak-like (SPMF).
@@ -54,6 +133,8 @@ def generate_sequences_with_scores_iterative(
     sequences = []
     INTERNAL_DELIMITER = "|" 
 
+    base_itemsets = format_itemsets_for_sequence(parse_pattern_itemsets(base_element)) if base_element else []
+
     for _ in range(n_samples):
         seq_length = np.random.randint(8, 15)
         
@@ -61,9 +142,9 @@ def generate_sequences_with_scores_iterative(
         
         seq = np.random.choice(current_vocab, seq_length, replace=True).tolist()
         
-        if base_element:
+        if base_itemsets:
             insert_pos = np.random.randint(0, len(seq) + 1)
-            seq.insert(insert_pos, base_element)
+            seq[insert_pos:insert_pos] = base_itemsets
             
         sequences.append(INTERNAL_DELIMITER.join(seq))
 
@@ -188,12 +269,10 @@ for rule in signal_rules:
     element = rule['element']
     target_auc = rule['target_auc']
 
-    pattern = f" {re.escape(element)} -1"
-
-    label_pattern = f"^{re.escape(df_final['sequence'].iloc[0].split()[0])} {re.escape(element)} -1"
+    pattern_itemsets = [tuple(sorted(itemset)) for itemset in parse_pattern_itemsets(element)]
 
     df_subsets_final = df_final[
-        df_final['sequence'].str.contains(pattern) | df_final['sequence'].str.contains(label_pattern)
+        df_final['sequence'].apply(lambda seq: sequence_contains_pattern(seq, pattern_itemsets))
     ]
     
     if not df_subsets_final.empty:

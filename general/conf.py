@@ -3,7 +3,7 @@ TOP_K = 5
 ITERATIONS_NUMBER = 10000
 TIME_BUDGET = 60
 THETA = 0.8
-MIN_SUPPORT = 10
+MIN_SUPPORT = 20
 LOG_LOSS_THRESHOLD = 0.0  # only expand sequences with log_loss >= threshold
 USE_JACCARD_PRIORITY = False
 
