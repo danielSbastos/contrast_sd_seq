@@ -272,7 +272,7 @@ def get_quality(support, data, extend):
     s_rel = support/(len(data))
     s = support
 
-    if s == 1: return (-1, -1)
+    if s == 1 or (x < 0.01): return (-1, -1)
 
     f = 100 * x**2 * s_rel**0.5
 
