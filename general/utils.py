@@ -1,4 +1,4 @@
-import copy
+import json
 import random
 
 import general.conf as conf
@@ -14,6 +14,36 @@ def increase_it_number():
 
 
 from seqscout.global_var import Model
+
+
+def parse_expected_patterns(file_path):
+    with open(file_path) as f:
+        d = json.load(f)
+
+    patterns = list(map(lambda x: x['element'], d))
+
+    fmt_patterns = []
+    for pattern in patterns:
+        fmt_patterns.append(list(map(lambda x: x.replace("{", "").replace("}", "").split(" "), pattern.split('} {'))))
+
+    return fmt_patterns
+
+def encode_expected_patterns(patterns, encoding):
+    encoded_patterns = []
+    for pattern in patterns:
+        encoded_pattern = []
+        for itemset in pattern:
+            encoded_itemset = set(map(lambda item: encoding[item], itemset))
+            encoded_pattern.append(encoded_itemset)
+
+        encoded_pattern = sequence_mutable_to_immutable(encoded_pattern)
+        encoded_patterns.append(encoded_pattern)
+
+    return encoded_patterns
+
+def decode_expected_patterns(pattern, decoding):
+    pass
+
 
 def sequence_mutable_to_immutable(sequence):
     """

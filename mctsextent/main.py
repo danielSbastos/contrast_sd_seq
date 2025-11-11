@@ -11,10 +11,10 @@ from sklearn.metrics import roc_auc_score
 import general.conf as conf
 
 from general.reader import read_data_kosarak
-from general.utils import sequence_mutable_to_immutable, compute_quality, \
+from general.utils import parse_expected_patterns, sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
-    compute_cumulative_probs, compute_sequence_expand
+    compute_cumulative_probs, compute_sequence_expand, encode_expected_patterns, decode_expected_patterns 
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -163,13 +163,12 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30):
+def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
     :param top_k: the number of patterns we want to get
     :param time_budget: the time we give to the algorithm
-    :param log_loss_threshold: minimum log_loss value for a sequence to be considered as expansion candidate
     :return: the top-k best pattern w.r.t WRAcc, and display them
     '''
     data = read_data_kosarak(path)
@@ -191,7 +190,12 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
 
     Model.set_rocauc(rocauc)
 
-    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=iterations_limit)
+    expected_patterns = []
+    if synth_patterns_path:
+        expected_patterns = parse_expected_patterns(synth_patterns_path)
+        expected_patterns = encode_expected_patterns(expected_patterns, items_to_encoding)
+    
+    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=iterations_limit, expected_patterns=expected_patterns)
     
     print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
@@ -222,7 +226,7 @@ def calculate_item_log_losses(data, log_losses):
     return item_log_losses
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER):
+                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[]):
 
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
@@ -248,6 +252,8 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
+
+    found_expected_patterns = 0
 
     while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit:
         node_sel = select(root_node)
@@ -275,13 +281,23 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
         iteration_count += 1
 
+        for expected_pattern in expected_patterns:
+            if (node_expand.intent == expected_pattern) or (reward_node.intent == expected_pattern):
+                print(f"Found expected pattern: {expected_pattern} at iteration {iteration_count}")
+                found_expected_patterns += 1
+
+        if len(expected_pattern) > 0 and found_expected_patterns == len(expected_pattern):
+            print(f"Found all patterns at iteration {iteration_count}")
+            found_expected_patterns = float('inf')
+            #break
+
         if iteration_count % 100 == 0:
             print(iteration_count)
 
 
     print('Number iteration mcts: {}'.format(iteration_count))
-    print("compute_quality: ", compute_quality.cache_info())
-    print("compute_cumulative_probs: ", compute_cumulative_probs.cache_info())
-    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
+#    print("compute_quality: ", compute_quality.cache_info())
+#    print("compute_cumulative_probs: ", compute_cumulative_probs.cache_info())
+#    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
 
     return sorted_patterns.get_top_k_non_redundant(data, top_k)
