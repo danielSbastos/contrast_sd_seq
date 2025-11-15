@@ -2,6 +2,7 @@ import heapq
 import general.conf as conf
 
 from general.utils import is_subsequence, sequence_mutable_to_immutable
+from statistical_validation import filter_by_significance
 
 
 def jaccard_measure_misere(sequence1, sequence2, data):
@@ -29,33 +30,138 @@ def jaccard_measure_misere(sequence1, sequence2, data):
         return 0
 
 
-def filter_results(results, data, theta, k):
+def filter_results(results, data, theta, k, k_prime=100, alpha=0.05, 
+                   validation_data_path=None, validation_target_path=None, items_to_encoding=None):
     """
-    Filter redundant elements
+    Filter redundant elements and apply multiple testing correction.
+    
     :param results: must be a node
-    :param theta:
-    :return: filtered list
+    :param theta: similarity threshold for redundancy
+    :param k: final number of patterns to return
+    :param k_prime: number of patterns to evaluate (default: 100)
+    :param alpha: significance threshold (default: 0.05)
+    :param items_to_encoding: Encoding dictionary to encode validation data    
     """
-
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
 
-    filtered_elements = []
+    candidate_patterns = []
+    for result in results_list:
+        candidate_patterns.append(result)
+        if len(candidate_patterns) >= k_prime:
+            break
 
-    for i, result in enumerate(results_list):
+    # Print patterns BEFORE significance filtering
+    print(f"\n{'='*80}")
+    print(f"PATTERNS BEFORE SIGNIFICANCE FILTERING ({len(candidate_patterns)} patterns):")
+    print(f"{'='*80}")
+    from general.utils import decode_sequence
+    # Create reverse encoding mapping if available
+    encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
+    
+    for idx, result in enumerate(candidate_patterns):
+        quality, sequence, extend, rocauc = result
+        pattern_display = ''
+        if encoding_to_items:
+            decoded_seq = decode_sequence(sequence, encoding_to_items)
+            for itemset in decoded_seq:
+                pattern_display += repr(set(itemset))
+        else:
+            # Fallback: show encoded pattern
+            for itemset in sequence:
+                pattern_display += repr(set(itemset))
+        
+        print(f"  Pattern {idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+    print(f"{'='*80}\n")
+
+    significant_patterns, filtered_out_info = filter_by_significance(
+        candidate_patterns,
+        validation_data_path=validation_data_path,
+        validation_target_path=validation_target_path,
+        items_to_encoding=items_to_encoding,
+        alpha=alpha,
+        n_subgroups=10000,
+    )
+    
+    # Create a set of significant pattern sequences for quick lookup
+    significant_patterns_set = {result[1] for result in significant_patterns}
+    
+    # Print patterns that were FILTERED OUT
+    filtered_out_patterns = []
+    for idx, result in enumerate(candidate_patterns):
+        if result[1] not in significant_patterns_set:
+            filtered_out_patterns.append((idx, result, filtered_out_info.get(idx, "No info available")))
+    
+    if filtered_out_patterns:
+        print(f"\n{'='*80}")
+        print(f"PATTERNS FILTERED OUT ({len(filtered_out_patterns)} patterns):")
+        print(f"{'='*80}")
+        for orig_idx, result, filter_info in filtered_out_patterns:
+            quality, sequence, extend, rocauc = result
+            pattern_display = ''
+            if encoding_to_items:
+                decoded_seq = decode_sequence(sequence, encoding_to_items)
+                for itemset in decoded_seq:
+                    pattern_display += repr(set(itemset))
+            else:
+                for itemset in sequence:
+                    pattern_display += repr(set(itemset))
+            
+            if isinstance(filter_info, str):
+                info_str = f" ({filter_info})"
+            else:
+                p_val = filter_info.get('p_value', 'N/A')
+                corr_p = filter_info.get('corrected_p', 'N/A')
+                reason = filter_info.get('reason', 'Unknown reason')
+                if isinstance(p_val, (int, float)):
+                    p_str = f"{p_val:.6f}"
+                else:
+                    p_str = str(p_val)
+                if isinstance(corr_p, (int, float)) and corr_p is not None:
+                    corr_p_str = f"{corr_p:.6f}"
+                else:
+                    corr_p_str = str(corr_p)
+                info_str = f" (p={p_str}, corrected_p={corr_p_str}, reason={reason})"
+            print(f"  Pattern {orig_idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}{info_str}")
+        print(f"{'='*80}\n")
+    else:
+        print(f"\nNo patterns were filtered out.\n")
+    
+    # Print patterns AFTER significance filtering
+    print(f"\n{'='*80}")
+    print(f"PATTERNS AFTER SIGNIFICANCE FILTERING ({len(significant_patterns)} patterns):")
+    print(f"{'='*80}")
+    for idx, result in enumerate(significant_patterns):
+        quality, sequence, extend, rocauc = result
+        pattern_display = ''
+        if encoding_to_items:
+            decoded_seq = decode_sequence(sequence, encoding_to_items)
+            for itemset in decoded_seq:
+                pattern_display += repr(set(itemset))
+        else:
+            # Fallback: show encoded pattern
+            for itemset in sequence:
+                pattern_display += repr(set(itemset))
+        
+        print(f"  Pattern {idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+    print(f"{'='*80}\n")
+    
+    filtered_elements = []
+    for result in significant_patterns:
         similar = False
 
         for filtered_element in filtered_elements:
-            if jaccard_measure_misere(result[1],
-                                      filtered_element[1], data) > theta:
+            if jaccard_measure_misere(result[1], filtered_element[1], data) > theta:
                 similar = True
-
+                break
+        
         if not similar:
             filtered_elements.append(result)
 
-        if len(filtered_elements) > k:
-            break
-
+            if len(filtered_elements) >= k:
+                break
+    
+    print(f"Final result: {len(filtered_elements)} patterns after significance and similarity filtering (target: {k})")
     return filtered_elements
 
 
@@ -129,8 +235,11 @@ class PrioritySet(object):
         data = heapq.nlargest(k, self.heap)
         return data
 
-    def get_top_k_non_redundant(self, data, k):
-        filtered_result = filter_results(self.heap, data, self.theta, k)
+    def get_top_k_non_redundant(self, data, k, validation_data_path=None, validation_target_path=None, items_to_encoding=None):
+        filtered_result = filter_results(self.heap, data, self.theta, k, 
+                                        validation_data_path=validation_data_path,
+                                        validation_target_path=validation_target_path,
+                                        items_to_encoding=items_to_encoding)
         return heapq.nlargest(k, filtered_result)
 
     def get_top_k_non_redundant_non_singleton(self, data, k):

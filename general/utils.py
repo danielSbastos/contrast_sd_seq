@@ -1,4 +1,5 @@
 import json
+
 import random
 
 import general.conf as conf
@@ -283,8 +284,21 @@ def roc_auc_score_binary(y_trues, confidences):
     else:
         return roc_auc_score(y_trues, confidences)
 
-def get_quality(support, data, extend):
-    target_class = Model.get_target_class()
+def get_quality(support, data, extend, target_class=None):
+    """
+    Calculate quality (WRAcc) for a pattern based on its support and ROC-AUC.
+    
+    Args:
+        support: Number of sequences in extend
+        data: Data sequences
+        extend: List of indices into target_class
+        target_class: Optional target class array. If None, uses Model.get_target_class()
+    
+    Returns:
+        Tuple of (quality, rocauc)
+    """
+    if target_class is None:
+        target_class = Model.get_target_class()
     extend_target_class = target_class[extend]
 
     y_trues = [item[0] for item in extend_target_class]
@@ -330,10 +344,10 @@ def print_rocket_league(patterns):
 
 
 @functools.lru_cache(maxsize=512)
-def compute_quality(subsequence):
-    data = Model.get_data()
-
-    seqscout.global_var.increase_it_number()
+def compute_quality(subsequence, data=None):
+    if data is None:
+        data = Model.get_data()
+        seqscout.global_var.increase_it_number()
 
     support = 0
     extend = []
@@ -441,6 +455,28 @@ def backtrack_all_LCS(C, seq1, seq2, i, j):
         lcs = lcs.union(backtrack_all_LCS(C, seq1, seq2, i - 1, j))
 
     return lcs
+
+
+def calculate_item_log_losses(data, log_losses):
+    item_loss_sums = {}
+    item_counts = {}
+
+    for i, sequence in enumerate(data):
+        loss = log_losses[i]
+        for itemset in sequence:
+            for item in itemset:
+                if item not in item_loss_sums:
+                    item_loss_sums[item] = 0
+                    item_counts[item] = 0
+                item_loss_sums[item] += loss
+                item_counts[item] += 1
+
+    item_log_losses = {}
+    for item in item_loss_sums:
+        item_log_losses[item] = item_loss_sums[item] / item_counts[item]
+
+    return item_log_losses
+
 
 def calculate_log_losses(target_class):
     i = 0
