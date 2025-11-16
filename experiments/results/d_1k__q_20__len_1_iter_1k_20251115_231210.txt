@@ -1,0 +1,51 @@
+0
+Calculated log losses for 11 items
+JACCARD SIMILARITY:  False
+Root node candidates after filtering: 1000/1000
+100
+200
+300
+400
+Found expected pattern: (frozenset({1}),) at iteration 472
+Found all patterns at iteration 472
+500
+600
+700
+800
+900
+Found expected pattern: (frozenset({2, 3}),) at iteration 935
+1000
+Number iteration mcts: 1000
+Model ROC AUC: 0.9506079999999999
+Quality: 1.4110666588315588, Extent: 20, ROCAUC: 0.7, Pattern: {'C', 'D'}
+Quality: 1.4110666588315588, Extent: 20, ROCAUC: 0.7, Pattern: {'D'}
+Quality: 0.843661550190475, Extent: 20, ROCAUC: 0.8, Pattern: {'B'}
+Quality: 0.519759957594722, Extent: 25, ROCAUC: 0.7987012987012987, Pattern: {'T'}{'Z'}{'T'}{'V'}{'X'}
+Quality: 0.45864640364135645, Extent: 30, ROCAUC: 0.8181818181818181, Pattern: {'Z'}{'T'}{'Z'}{'T'}{'X'}
+Quality: 0.44512202311218085, Extent: 21, ROCAUC: 0.8090909090909092, Pattern: {'W'}{'V'}{'X'}{'V'}{'T'}
+Quality: 0.4219702881024081, Extent: 20, ROCAUC: 0.8131868131868132, Pattern: {'Z'}{'T'}{'W'}{'W'}{'V'}
+Quality: 0.41290811499321967, Extent: 458, ROCAUC: 0.9357360793287566, Pattern: {'V'}{'X'}
+Quality: 0.4083836357818392, Extent: 474, ROCAUC: 0.9382916763439515, Pattern: {'Z'}{'V'}
+Quality: 0.40675947780852717, Extent: 425, ROCAUC: 0.9389768142926807, Pattern: {'Z'}{'X'}
+Quality: 0.375632315530088, Extent: 72, ROCAUC: 0.8749034749034749, Pattern: {'Z'}{'T'}{'W'}{'V'}
+Quality: 0.36984399938480716, Extent: 70, ROCAUC: 0.8758169934640524, Pattern: {'Z'}{'T'}{'W'}{'W'}
+Quality: 0.36346952390290355, Extent: 193, ROCAUC: 0.9129080756013745, Pattern: {'Z'}{'V'}{'X'}
+Quality: 0.35598219357414285, Extent: 224, ROCAUC: 0.9165334186120883, Pattern: {'T'}{'Z'}{'V'}
+Quality: 0.354335734652393, Extent: 75, ROCAUC: 0.881054131054131, Pattern: {'X'}{'U'}{'V'}{'X'}
+Average score :0.5705739023954788
+Out[1]: 
+[(1.4110666588315588, [{'C', 'D'}]),
+ (1.4110666588315588, [{'D'}]),
+ (0.843661550190475, [{'B'}]),
+ (0.519759957594722, [{'T'}, {'Z'}, {'T'}, {'V'}, {'X'}]),
+ (0.45864640364135645, [{'Z'}, {'T'}, {'Z'}, {'T'}, {'X'}]),
+ (0.44512202311218085, [{'W'}, {'V'}, {'X'}, {'V'}, {'T'}]),
+ (0.4219702881024081, [{'Z'}, {'T'}, {'W'}, {'W'}, {'V'}]),
+ (0.41290811499321967, [{'V'}, {'X'}]),
+ (0.4083836357818392, [{'Z'}, {'V'}]),
+ (0.40675947780852717, [{'Z'}, {'X'}]),
+ (0.375632315530088, [{'Z'}, {'T'}, {'W'}, {'V'}]),
+ (0.36984399938480716, [{'Z'}, {'T'}, {'W'}, {'W'}]),
+ (0.36346952390290355, [{'Z'}, {'V'}, {'X'}]),
+ (0.35598219357414285, [{'T'}, {'Z'}, {'V'}]),
+ (0.354335734652393, [{'X'}, {'U'}, {'V'}, {'X'}])]
