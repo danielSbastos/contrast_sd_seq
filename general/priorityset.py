@@ -31,7 +31,6 @@ def jaccard_measure_misere(sequence1, sequence2, data):
         return 0
 
 
-
 def print_decoded_result(results_list, items_to_encoding):
     encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
     
@@ -47,6 +46,7 @@ def print_decoded_result(results_list, items_to_encoding):
                 pattern_display += repr(set(itemset))
         print(f"  Pattern {idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
+
 
 def filter_results(results, data, theta, k, k_prime=100, alpha=0.05, 
                    validation_data_path=None, validation_target_path=None, items_to_encoding=None,
