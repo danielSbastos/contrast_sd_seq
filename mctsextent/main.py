@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import os
 import math
@@ -23,13 +24,7 @@ from seqscout.global_var import Model
 
 sys.setrecursionlimit(15000)
 
-
 def best_child(node):
-    """
-    Returns the best child node of node w.r.t UCB
-    :param node:
-    :return:
-    """
     if node.is_dead_end() and len(node.parents) == 0:
         return 'finished'
 
@@ -89,6 +84,11 @@ def roll_out(node, item_log_losses=None):
             item_candidates.append((itemset_i, item, removal_prob))
 
     probs = [prob for _, _, prob in item_candidates]
+
+    if probs == []:
+        print(sequence)
+        return sequence, 1
+    
     min_prob = min(probs)
     max_prob = max(probs)
     prob_range = max_prob - min_prob
@@ -112,20 +112,17 @@ def roll_out(node, item_log_losses=None):
         itemset_i, item, _ = available_candidates.pop(chosen_idx)
         items_to_remove.append((itemset_i, item))
 
-    # remove selected items from sequence
     items_by_itemset = {}
     for itemset_i, item in items_to_remove:
         if itemset_i not in items_by_itemset:
             items_by_itemset[itemset_i] = []
         items_by_itemset[itemset_i].append(item)
 
-    # remove items and track which itemsets become empty
     itemsets_to_remove = []
     for itemset_i, items in items_by_itemset.items():
         for item in items:
             sequence[itemset_i].discard(item)
 
-        # append empty itemsets to be later removed
         if len(sequence[itemset_i]) == 0:
             itemsets_to_remove.append(itemset_i)
 
@@ -181,13 +178,8 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
     target_class = target_file.values
 
     Model.set_labels(list(target_file['y_true'].unique()))
-
-    if Model.is_multiclass():
-        target_file['confidence'] = target_file['confidence'].map(eval)
-        rocauc = roc_auc_score(target_file['y_true'].tolist(), target_file['confidence'].tolist(), multi_class='ovo')
-    else:
-        positive_class_scores = target_file['confidence']
-        rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
+    positive_class_scores = target_file['confidence']
+    rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
 
     Model.set_rocauc(rocauc)
 
@@ -200,18 +192,18 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
     validation_target_path = None
     
     base_path, ext = os.path.splitext(path)
-    validation_data_path = base_path + "_significance" + ext
+    validation_data_path = base_path + "_validation" + ext
 
     base_target_path, ext = os.path.splitext(target_path)
-    validation_target_path = base_target_path + "_significance" + ext
+    validation_target_path = base_target_path + "_validation" + ext
     
+    print(f"Model ROC AUC: {rocauc}")
     results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, 
                          iterations_limit=iterations_limit, expected_patterns=expected_patterns,
                          validation_data_path=validation_data_path, 
                          validation_target_path=validation_target_path,
                          items_to_encoding=items_to_encoding)
     
-    print(f"Model ROC AUC: {rocauc}")
     print_results_decode(results, encoding_to_items)
 
     return decode_sequences(results, encoding_to_items)
@@ -228,7 +220,7 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     log_losses = calculate_log_losses(target_class)
     data = filter_empty_sequences(data)
-
+    
     Model.set_target_class(target_class)
     Model.set_log_losses(log_losses)
     Model.set_data(data)
@@ -237,7 +229,6 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     item_log_losses = calculate_item_log_losses(data, log_losses)
     print(f"Calculated log losses for {len(item_log_losses)} items")
-    print(f"JACCARD SIMILARITY: ", conf.USE_JACCARD_PRIORITY)
 
     node_hashmap = {}
     root_node = Node(None, None, node_hashmap)
@@ -290,4 +281,5 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
     return sorted_patterns.get_top_k_non_redundant(data, top_k, 
                                                    validation_data_path=validation_data_path,
                                                    validation_target_path=validation_target_path,
-                                                   items_to_encoding=items_to_encoding)
+                                                   items_to_encoding=items_to_encoding,
+                                                   pattern_max_len=6)

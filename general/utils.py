@@ -151,12 +151,20 @@ def encode_data(data, item_to_encoding):
     :param item_to_encoding:
     :return:
     """
+    has_malformatted_sequences = False
+
     for line in data:
         for i, itemset in enumerate(line[1:]):
+            if len(itemset) == 0:
+                has_malformatted_sequences = True
+                continue
             encoded_itemset = set()
             for item in itemset:
                 encoded_itemset.add(item_to_encoding[item])
             line[i + 1] = encoded_itemset
+
+        if has_malformatted_sequences:
+            del line[1]
 
     return data
 
@@ -304,10 +312,7 @@ def get_quality(support, data, extend, target_class=None):
     y_trues = [item[0] for item in extend_target_class]
     confidences = [item[1] for item in extend_target_class]
 
-    if Model.is_multiclass():
-        rocauc = roc_auc_score(y_trues, confidences, multi_class='ovo', labels = Model.get_labels())
-    else:
-        rocauc = roc_auc_score_binary(y_trues, confidences)
+    rocauc = roc_auc_score_binary(y_trues, confidences)
 
     if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
         return -1, -1
@@ -318,7 +323,7 @@ def get_quality(support, data, extend, target_class=None):
 
     if s == 1 or (x < 0.01): return (-1, -1)
 
-    f = 100 * x**2 * s_rel**0.5
+    f = 100 * (x ** 2) * s_rel**0.5
 
     return f, rocauc
 
@@ -491,7 +496,8 @@ def calculate_log_losses(target_class):
     return log_losses
 
 def filter_empty_sequences(data):
-    return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
+    return tuple([sequence_mutable_to_immutable(i[1:]) for i in data])
+    #return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
 @functools.lru_cache(maxsize=512)
 def compute_cumulative_probs(items_tuple):
