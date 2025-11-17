@@ -16,7 +16,7 @@ from general.reader import read_data_kosarak
 from general.utils import parse_expected_patterns, sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
-    calculate_item_log_losses, encode_expected_patterns, is_subsequence
+    calculate_item_log_losses, encode_expected_patterns
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
