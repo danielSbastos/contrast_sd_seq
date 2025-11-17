@@ -1,4 +1,6 @@
+import re
 import pandas as pd
+import os
 import math
 import datetime
 import sys
@@ -14,7 +16,7 @@ from general.reader import read_data_kosarak
 from general.utils import parse_expected_patterns, sequence_mutable_to_immutable, compute_quality, \
     sequence_immutable_to_mutable, calculate_log_losses, filter_empty_sequences, encode_items, \
     encode_data, print_results_decode, extract_items, decode_sequences, get_idx_from_cumulative_prop, \
-    compute_cumulative_probs, compute_sequence_expand, encode_expected_patterns, decode_expected_patterns 
+    calculate_item_log_losses, encode_expected_patterns, is_subsequence
 
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
@@ -22,13 +24,7 @@ from seqscout.global_var import Model
 
 sys.setrecursionlimit(15000)
 
-
 def best_child(node):
-    """
-    Returns the best child node of node w.r.t UCB
-    :param node:
-    :return:
-    """
     if node.is_dead_end() and len(node.parents) == 0:
         return 'finished'
 
@@ -88,6 +84,11 @@ def roll_out(node, item_log_losses=None):
             item_candidates.append((itemset_i, item, removal_prob))
 
     probs = [prob for _, _, prob in item_candidates]
+
+    if probs == []:
+        print(sequence)
+        return sequence, 1
+    
     min_prob = min(probs)
     max_prob = max(probs)
     prob_range = max_prob - min_prob
@@ -111,20 +112,17 @@ def roll_out(node, item_log_losses=None):
         itemset_i, item, _ = available_candidates.pop(chosen_idx)
         items_to_remove.append((itemset_i, item))
 
-    # remove selected items from sequence
     items_by_itemset = {}
     for itemset_i, item in items_to_remove:
         if itemset_i not in items_by_itemset:
             items_by_itemset[itemset_i] = []
         items_by_itemset[itemset_i].append(item)
 
-    # remove items and track which itemsets become empty
     itemsets_to_remove = []
     for itemset_i, items in items_by_itemset.items():
         for item in items:
             sequence[itemset_i].discard(item)
 
-        # append empty itemsets to be later removed
         if len(sequence[itemset_i]) == 0:
             itemsets_to_remove.append(itemset_i)
 
@@ -180,13 +178,8 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
     target_class = target_file.values
 
     Model.set_labels(list(target_file['y_true'].unique()))
-
-    if Model.is_multiclass():
-        target_file['confidence'] = target_file['confidence'].map(eval)
-        rocauc = roc_auc_score(target_file['y_true'].tolist(), target_file['confidence'].tolist(), multi_class='ovo')
-    else:
-        positive_class_scores = target_file['confidence']
-        rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
+    positive_class_scores = target_file['confidence']
+    rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
 
     Model.set_rocauc(rocauc)
 
@@ -195,9 +188,22 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
         expected_patterns = parse_expected_patterns(synth_patterns_path)
         expected_patterns = encode_expected_patterns(expected_patterns, items_to_encoding)
     
-    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, iterations_limit=iterations_limit, expected_patterns=expected_patterns)
+    validation_data_path = None
+    validation_target_path = None
+    
+    base_path, ext = os.path.splitext(path)
+    validation_data_path = base_path + "_validation" + ext
+
+    base_target_path, ext = os.path.splitext(target_path)
+    validation_target_path = base_target_path + "_validation" + ext
     
     print(f"Model ROC AUC: {rocauc}")
+    results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, 
+                         iterations_limit=iterations_limit, expected_patterns=expected_patterns,
+                         validation_data_path=validation_data_path, 
+                         validation_target_path=validation_target_path,
+                         items_to_encoding=items_to_encoding)
+    
     print_results_decode(results, encoding_to_items)
 
     return decode_sequences(results, encoding_to_items)
@@ -205,35 +211,16 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
 def extend_cover_minsup_abs(extend):
     return len(extend) >= conf.MIN_SUPPORT
 
-def calculate_item_log_losses(data, log_losses):
-    item_loss_sums = {}
-    item_counts = {}
-
-    for i, sequence in enumerate(data):
-        loss = log_losses[i]
-        for itemset in sequence:
-            for item in itemset:
-                if item not in item_loss_sums:
-                    item_loss_sums[item] = 0
-                    item_counts[item] = 0
-                item_loss_sums[item] += loss
-                item_counts[item] += 1
-
-    item_log_losses = {}
-    for item in item_loss_sums:
-        item_log_losses[item] = item_loss_sums[item] / item_counts[item]
-
-    return item_log_losses
-
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[]):
+                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], 
+                validation_data_path=None, validation_target_path=None, items_to_encoding=None):
 
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
     log_losses = calculate_log_losses(target_class)
     data = filter_empty_sequences(data)
-
+    
     Model.set_target_class(target_class)
     Model.set_log_losses(log_losses)
     Model.set_data(data)
@@ -242,7 +229,6 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
     item_log_losses = calculate_item_log_losses(data, log_losses)
     print(f"Calculated log losses for {len(item_log_losses)} items")
-    print(f"JACCARD SIMILARITY: ", conf.USE_JACCARD_PRIORITY)
 
     node_hashmap = {}
     root_node = Node(None, None, node_hashmap)
@@ -286,18 +272,14 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
                 print(f"Found expected pattern: {expected_pattern} at iteration {iteration_count}")
                 found_expected_patterns += 1
 
-        if len(expected_pattern) > 0 and found_expected_patterns == len(expected_pattern):
-            print(f"Found all patterns at iteration {iteration_count}")
-            found_expected_patterns = float('inf')
-            #break
-
         if iteration_count % 100 == 0:
             print(iteration_count)
 
 
     print('Number iteration mcts: {}'.format(iteration_count))
-#    print("compute_quality: ", compute_quality.cache_info())
-#    print("compute_cumulative_probs: ", compute_cumulative_probs.cache_info())
-#    print("compute_sequence_expand: ", compute_sequence_expand.cache_info())
 
-    return sorted_patterns.get_top_k_non_redundant(data, top_k)
+    return sorted_patterns.get_top_k_non_redundant(data, top_k, 
+                                                   validation_data_path=validation_data_path,
+                                                   validation_target_path=validation_target_path,
+                                                   items_to_encoding=items_to_encoding,
+                                                   pattern_max_len=6)

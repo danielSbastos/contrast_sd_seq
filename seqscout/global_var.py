@@ -11,6 +11,8 @@ class Model:
     TARGET_CLASS = None
     LOG_LOSSES = None
     DATA = None
+    VALIDATION_DATA = None
+    VALIDATION_TARGET_CLASS = None
 
     @classmethod
     def set_rocauc(cls, value):
@@ -56,3 +58,19 @@ class Model:
     @classmethod
     def get_data(cls):
         return cls.DATA
+
+    @classmethod
+    def set_validation_data(cls, value):
+        cls.VALIDATION_DATA = value
+
+    @classmethod
+    def get_validation_data(cls):
+        return cls.VALIDATION_DATA
+
+    @classmethod
+    def set_validation_target_class(cls, value):
+        cls.VALIDATION_TARGET_CLASS = value
+
+    @classmethod
+    def get_validation_target_class(cls):
+        return cls.VALIDATION_TARGET_CLASS

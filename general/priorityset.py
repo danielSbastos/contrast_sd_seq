@@ -1,7 +1,9 @@
 import heapq
+from general.utils import decode_sequence
 import general.conf as conf
 
 from general.utils import is_subsequence, sequence_mutable_to_immutable
+from statistical_validation import filter_by_significance
 
 
 def jaccard_measure_misere(sequence1, sequence2, data):
@@ -29,34 +31,142 @@ def jaccard_measure_misere(sequence1, sequence2, data):
         return 0
 
 
-def filter_results(results, data, theta, k):
-    """
-    Filter redundant elements
-    :param results: must be a node
-    :param theta:
-    :return: filtered list
-    """
 
+def print_decoded_result(results_list, items_to_encoding):
+    encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
+    
+    for idx, result in enumerate(results_list):
+        quality, sequence, extend, rocauc = result
+        pattern_display = ''
+        if encoding_to_items:
+            decoded_seq = decode_sequence(sequence, encoding_to_items)
+            for itemset in decoded_seq:
+                pattern_display += repr(set(itemset))
+        else:
+            for itemset in sequence:
+                pattern_display += repr(set(itemset))
+        print(f"  Pattern {idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+    print(f"{'='*80}\n")
+
+def filter_results(results, data, theta, k, k_prime=100, alpha=0.05, 
+                   validation_data_path=None, validation_target_path=None, items_to_encoding=None,
+                   pattern_max_len=float('inf')):
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
+    results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
 
-    filtered_elements = []
+    print(f"================")
+    print(f"ALL PATTERNS")
+    print(f"================")
+    print_decoded_result(results_list, items_to_encoding)
 
-    for i, result in enumerate(results_list):
+    print(f"================")
+    print(f"APPLYING STATISTICAL VALIDATION")
+    print(f"================")
+
+    significant_patterns, _ = filter_by_significance(
+        results_list[:k_prime],
+        validation_data_path=validation_data_path,
+        validation_target_path=validation_target_path,
+        items_to_encoding=items_to_encoding,
+        alpha=alpha,
+        n_subgroups=10000,
+    )
+    
+    candidate_patterns = significant_patterns[:k_prime]
+
+    print(f"================")
+    print(f"PATTERNS AFTER STATISTICAL VALIDATION")
+    print(f"================")
+    print_decoded_result(candidate_patterns, items_to_encoding)
+
+    print(f"================")
+    print(f"FILTERING BY SIMILARITY")
+    print(f"================")
+    non_redundant_patterns = []
+
+    for _, result in enumerate(candidate_patterns):
         similar = False
+        max_jaccard = 0.0
+        
+        for _, filtered_element in enumerate(non_redundant_patterns):
+            jaccard_sim = jaccard_measure_misere(result[1], filtered_element[1], data)
 
-        for filtered_element in filtered_elements:
-            if jaccard_measure_misere(result[1],
-                                      filtered_element[1], data) > theta:
+            if jaccard_sim > max_jaccard:
+                max_jaccard = jaccard_sim
+
+            if jaccard_sim > theta:
                 similar = True
-
+                break
+        
         if not similar:
-            filtered_elements.append(result)
+            non_redundant_patterns.append(result)
+    
+    print_decoded_result(non_redundant_patterns, items_to_encoding)
 
-        if len(filtered_elements) > k:
-            break
+    return non_redundant_patterns
 
-    return filtered_elements
+
+def _filter_results(results, data, theta, k, k_prime=100, alpha=0.05, 
+                   validation_data_path=None, validation_target_path=None, items_to_encoding=None,
+                   pattern_max_len=float('inf')):
+    results_list = list(results)
+    results_list.sort(key=lambda x: x[0], reverse=True)
+    results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
+
+    print(f"\n================")
+    print(f"PATTERNS BEFORE FILTERING")
+    print(f"\n================")
+    print_decoded_result(results_list, items_to_encoding)
+
+    print(f"\n================")
+    print(f"FILTERING BY SIMILARITY")
+    print(f"\n================")
+
+    non_redundant_patterns = []
+
+    for _, result in enumerate(results_list):
+        similar = False
+        max_jaccard = 0.0
+        
+        for _, filtered_element in enumerate(non_redundant_patterns):
+            jaccard_sim = jaccard_measure_misere(result[1], filtered_element[1], data)
+
+            if jaccard_sim > max_jaccard:
+                max_jaccard = jaccard_sim
+
+            if jaccard_sim > theta:
+                similar = True
+                break
+        
+        if not similar:
+            non_redundant_patterns.append(result)
+    
+    print_decoded_result(non_redundant_patterns, items_to_encoding)
+
+    print(f"\n================")
+    print(f"APPLYING STATISTICAL VALIDATION")
+    print(f"\n================")
+
+    significant_patterns, _ = filter_by_significance(
+        non_redundant_patterns[:k_prime],
+        validation_data_path=validation_data_path,
+        validation_target_path=validation_target_path,
+        items_to_encoding=items_to_encoding,
+        alpha=alpha,
+        n_subgroups=10000,
+    )
+    
+    candidate_patterns = significant_patterns[:k_prime]
+
+    print(f"\n================")
+    print(f"PATTERNS AFTER STATISTICAL VALIDATION")
+    print(f"\n================")
+    print_decoded_result(candidate_patterns, items_to_encoding)
+
+    final_patterns = candidate_patterns[:k]
+    
+    return final_patterns
 
 
 def filter_results_not_singleton(results, data, theta, k):
@@ -129,8 +239,12 @@ class PrioritySet(object):
         data = heapq.nlargest(k, self.heap)
         return data
 
-    def get_top_k_non_redundant(self, data, k):
-        filtered_result = filter_results(self.heap, data, self.theta, k)
+    def get_top_k_non_redundant(self, data, k, pattern_max_len = float('inf'), validation_data_path=None, validation_target_path=None, items_to_encoding=None):
+        filtered_result = filter_results(self.heap, data, self.theta, k, 
+                                        validation_data_path=validation_data_path,
+                                        validation_target_path=validation_target_path,
+                                        items_to_encoding=items_to_encoding,
+                                        pattern_max_len=pattern_max_len)
         return heapq.nlargest(k, filtered_result)
 
     def get_top_k_non_redundant_non_singleton(self, data, k):
