@@ -64,7 +64,7 @@ def _calculate_auc_scores(n_samples, target_auc, max_iter=50, tolerance=0.001):
     return targets, expit(confidence_scores)
 
 def _create_single_sequence(base_element, vocabulary, allow_itemsets, noise_density, frozen_vocabulary=None, frozen_vocabulary_probs=None):
-    seq_length = np.random.randint(5, 8)
+    seq_length = np.random.randint(15, 30)
     
     def gen_noise(n_items):
         return [

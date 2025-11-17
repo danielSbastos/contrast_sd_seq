@@ -104,7 +104,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     
     print_decoded_result(non_redundant_patterns, items_to_encoding)
 
-    return non_redundant_patterns
+    return non_redundant_patterns[:k]
 
 
 def _filter_results(results, data, theta, k, k_prime=100, alpha=0.05, 
@@ -115,7 +115,7 @@ def _filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
 
     print(f"\n================")
-    print(f"PATTERNS BEFORE FILTERING")
+    print(f"ALL PATTERNS")
     print(f"\n================")
     print_decoded_result(results_list, items_to_encoding)
 

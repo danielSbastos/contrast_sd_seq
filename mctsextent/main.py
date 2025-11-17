@@ -161,7 +161,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None):
+def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -169,6 +169,8 @@ def get_patterns(path='', target_path='', top_k=5, time_budget=10, theta=0.1, it
     :param time_budget: the time we give to the algorithm
     :return: the top-k best pattern w.r.t WRAcc, and display them
     '''
+    path = f"data/{filename}.dat"
+    target_path=f"data/{filename}.csv"
     data = read_data_kosarak(path)
     items = extract_items(data)
     items, items_to_encoding, encoding_to_items = encode_items(items)
