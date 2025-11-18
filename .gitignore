@@ -1,7 +1,7 @@
 # Arquivos de dados gerados
 data/**/*
 
-experiments/**/*
+experiments/results/**/*
 
 seq_emm.pem
 
