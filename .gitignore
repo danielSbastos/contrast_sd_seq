@@ -12,3 +12,5 @@ __pycache__/
 # Ambientes virtuais
 venv/
 .venv/
+
+.DS_Store
