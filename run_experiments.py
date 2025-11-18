@@ -22,11 +22,6 @@ def parse_config_filename(filename: str) -> Dict[str, str]:
 
 
 def get_data_files(config_file: str, noise: float, l4_only: bool = False) -> Tuple[str, str]:
-    """
-    Get data file paths for a given config file and noise value.
-    If l4_only is True, the config file already has __l_4 in its name,
-    so the data files will automatically include it.
-    """
     base_name = config_file.replace('.json', '')
     noise_str = str(noise) if noise != int(noise) else str(int(noise))
     dat_path = f'data/{base_name}__n_{noise_str}.dat'
@@ -90,12 +85,8 @@ def run_experiment_subprocess(cmd, experiment_name):
             
 
 def main():
-    parser = argparse.ArgumentParser(description="Run MCTSExtent experiments")
-    parser.add_argument(
-        '--l4-only',
-        action='store_true',
-        help='Run experiments only on __l_4 config files (length-4 patterns)'
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--l4', action='store_true')
     args = parser.parse_args()
     
     config_dir = "config"
@@ -106,13 +97,12 @@ def main():
         if f.endswith('.json') and f != 'signal_rules_example.json'
     ]
     
-    # Filter config files based on --l4-only flag
     if args.l4_only:
         config_files = [f for f in config_files if '__l_4' in f]
-        print("Running in L4-only mode: processing only __l_4 config files")
+        print("Running in l4 mode")
     else:
         config_files = [f for f in config_files if '__l_4' not in f]
-        print("Running in standard mode: processing only non-__l_4 config files")
+        print("Running in normal mode")
     
     config_files.sort()
     
