@@ -3,6 +3,8 @@ data/**/*
 
 experiments/**/*
 
+seq_emm.pem
+
 # Python
 __pycache__/
 *.pyc

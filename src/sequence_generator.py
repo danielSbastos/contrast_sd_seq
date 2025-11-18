@@ -1,9 +1,33 @@
 import pandas as pd
 import numpy as np
+import re
 from scipy.stats import norm
 from scipy.special import expit
 from sklearn.metrics import roc_auc_score
 from src.utils import to_kosarak_format
+
+def _parse_pattern_itemsets(pattern_str):
+    """
+    Convert a pattern definition string (e.g. "{A B} {C} {E}") into a list of
+    itemsets where each itemset is represented as a tuple of tokens.
+    """
+    if not pattern_str:
+        return []
+
+    matches = re.findall(r'\{([^}]*)\}', pattern_str)
+    itemsets = []
+
+    if matches:
+        for match in matches:
+            tokens = [token for token in match.strip().split() if token]
+            if tokens:
+                itemsets.append(tuple(tokens))
+    else:
+        tokens = [token for token in pattern_str.strip().split() if token]
+        if tokens:
+            itemsets.append(tuple(tokens))
+
+    return itemsets
 
 def _generate_random_element(vocabulary, allow_itemsets=False, prob_itemset=0.15, max_itemset_size=3, noise_density=1.0, frozen_vocabulary=None, frozen_vocabulary_probs=None):
     """Gera um elemento aleatório, controlando a densidade do ruído."""
@@ -78,7 +102,38 @@ def _create_single_sequence(base_element, vocabulary, allow_itemsets, noise_dens
             for _ in range(n_items)
         ]
 
-    if base_element and base_element.startswith('{') and base_element.endswith('}'):
+    if not base_element:
+        return gen_noise(seq_length)
+
+    # Check if it's a sequence of itemsets pattern like "{A B} {C} {E}"
+    pattern_itemsets = _parse_pattern_itemsets(base_element)
+    if len(pattern_itemsets) > 1:
+        # Sequence of itemsets: insert them consecutively as a block, then add noise around
+        signal_itemsets = [" ".join(itemset) for itemset in pattern_itemsets]
+        
+        # Collect all signal items to exclude from vocabulary
+        all_signal_items = set()
+        for itemset in pattern_itemsets:
+            all_signal_items.update(itemset)
+        
+        # Ensure minimum sequence length
+        n_signal_itemsets = len(signal_itemsets)
+        seq_length = max(seq_length, n_signal_itemsets)
+        
+        # Generate background noise
+        background_seq = gen_noise(seq_length - n_signal_itemsets)
+        
+        # Insert the complete pattern as a consecutive block, then insert noise before/after it
+        # This ensures the pattern itemsets remain consecutive for verification
+        insert_pos = np.random.randint(0, len(background_seq) + 1)
+        final_seq = background_seq.copy()
+        for itemset in reversed(signal_itemsets):  # Insert in reverse to maintain order
+            final_seq.insert(insert_pos, itemset)
+        
+        return final_seq
+
+    # Check if it's a single itemset pattern like "{A B C}"
+    if base_element.startswith('{') and base_element.endswith('}'):
         content = base_element.strip('{}')
         signal_items = content.split(' ')
         current_vocab = [v for v in vocabulary if v not in signal_items]
@@ -87,7 +142,8 @@ def _create_single_sequence(base_element, vocabulary, allow_itemsets, noise_dens
         background_seq.insert(insert_pos, " ".join(signal_items))
         return background_seq
 
-    if base_element and ' ' in base_element:
+    # Check if it's an ordered sequence of items like "A B C"
+    if ' ' in base_element:
         signal_items = base_element.split(' ')
         n_signal = len(signal_items)
         seq_length = max(seq_length, n_signal)
@@ -100,6 +156,7 @@ def _create_single_sequence(base_element, vocabulary, allow_itemsets, noise_dens
             final_seq.insert(insert_pos, item)
         return final_seq
 
+    # Single item pattern
     signal_items = [base_element] if base_element else []
     current_vocab = [v for v in vocabulary if v not in signal_items]
     seq_len = seq_length - len(signal_items)

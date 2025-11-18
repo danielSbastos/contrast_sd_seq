@@ -155,6 +155,26 @@ def main():
         parts.append("-2")
         return " ".join(parts)
     
+    def parse_pattern_itemsets(pattern_str):
+        """Parse a pattern definition string (e.g. "{A B} {C} {E}") into a list of itemsets."""
+        if not pattern_str:
+            return []
+
+        matches = re.findall(r'\{([^}]*)\}', pattern_str)
+        itemsets = []
+
+        if matches:
+            for match in matches:
+                tokens = [token for token in match.strip().split() if token]
+                if tokens:
+                    itemsets.append(tuple(sorted(tokens)))
+        else:
+            tokens = [token for token in pattern_str.strip().split() if token]
+            if tokens:
+                itemsets.append(tuple(tokens))
+
+        return itemsets
+    
     def is_itemset_pattern(itemset_str, pattern_element):
         """Check if an itemset contains a pattern element (for itemset patterns like {A B C})."""
         if pattern_element.startswith('{') and pattern_element.endswith('}'):
@@ -162,6 +182,23 @@ def main():
             itemset_items = set(itemset_str.split())
             return pattern_items.issubset(itemset_items)
         return False
+    
+    def contains_itemset_sequence_pattern(sequence_itemsets, pattern_itemsets_list):
+        """Check if sequence contains an itemset sequence pattern and return indices of matching itemsets."""
+        pattern_len = len(pattern_itemsets_list)
+        if pattern_len == 0 or pattern_len > len(sequence_itemsets):
+            return []
+        
+        # Convert sequence itemsets to sorted tuples for comparison
+        seq_itemsets_tuples = [tuple(sorted(itemset.split())) for itemset in sequence_itemsets]
+        
+        # Find consecutive itemsets that match the pattern in order
+        for start_idx in range(len(seq_itemsets_tuples) - pattern_len + 1):
+            window = seq_itemsets_tuples[start_idx:start_idx + pattern_len]
+            if window == pattern_itemsets_list:
+                return list(range(start_idx, start_idx + pattern_len))
+        
+        return []
     
     def contains_ordered_pattern(sequence_itemsets, pattern_element):
         """Check if sequence contains an ordered pattern and return indices of matching itemsets."""
@@ -194,12 +231,17 @@ def main():
     pattern_itemsets_by_rule = []
     for rule in signal_rules:
         element = rule['element']
-        if element.startswith('{') and element.endswith('}'):
-            # Itemset pattern
+        pattern_itemsets = parse_pattern_itemsets(element)
+        
+        if len(pattern_itemsets) > 1:
+            # Sequence of itemsets pattern like "{A B} {C} {E}"
+            pattern_itemsets_by_rule.append(('itemset_sequence', pattern_itemsets))
+        elif element.startswith('{') and element.endswith('}'):
+            # Single itemset pattern like "{A B C}"
             pattern_items = set(element.strip('{}').split())
             pattern_itemsets_by_rule.append(('itemset', pattern_items))
         elif ' ' in element:
-            # Ordered sequence pattern
+            # Ordered sequence pattern like "A B C"
             pattern_items = element.split()
             pattern_itemsets_by_rule.append(('ordered', pattern_items))
         else:
@@ -228,7 +270,11 @@ def main():
             element = rule['element']
             pattern_type, pattern_data = pattern_itemsets_by_rule[rule_idx]
             
-            if pattern_type == 'itemset':
+            if pattern_type == 'itemset_sequence':
+                # Find itemsets that form the itemset sequence pattern in order
+                matching_indices = contains_itemset_sequence_pattern(itemsets, pattern_data)
+                protected_indices.update(matching_indices)
+            elif pattern_type == 'itemset':
                 # Check each itemset to see if it contains all pattern items
                 for i, itemset in enumerate(itemsets):
                     itemset_items = set(itemset.split())
