@@ -136,7 +136,7 @@ def generate_sequences_with_scores_iterative(
     base_itemsets = format_itemsets_for_sequence(parse_pattern_itemsets(base_element)) if base_element else []
 
     for _ in range(n_samples):
-        seq_length = np.random.randint(15, 30)
+        seq_length = np.random.randint(30, 50)
         
         current_vocab = [v for v in vocabulary if v != base_element]
         

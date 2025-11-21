@@ -1,16 +1,16 @@
 [
   {
-    "element": "{A B} {C} {C D} {E}",
+    "element": "{A B} {C} {D E}",
     "quantity": 50,
     "target_auc": 0.9
   },
   {
-    "element": "{M} {N M} {N M} {N}",
+    "element": "{M} {N M} {N}",
     "quantity": 50,
     "target_auc": 0.8
   },
   {
-    "element": "{P R} {Q S} {R} {P R}",
+    "element": "{P R} {Q} {R}",
     "quantity": 50,
     "target_auc": 0.7
   }

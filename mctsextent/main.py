@@ -21,7 +21,6 @@ from general.utils import parse_expected_patterns, sequence_mutable_to_immutable
 from general.priorityset import PrioritySet
 from mctsextent.node import Node
 from seqscout.global_var import Model
-
 sys.setrecursionlimit(15000)
 
 def best_child(node):
@@ -185,11 +184,6 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     Model.set_rocauc(rocauc)
 
-    expected_patterns = []
-    if synth_patterns_path:
-        expected_patterns = parse_expected_patterns(synth_patterns_path)
-        expected_patterns = encode_expected_patterns(expected_patterns, items_to_encoding)
-    
     validation_data_path = None
     validation_target_path = None
     
@@ -198,14 +192,32 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     base_target_path, ext = os.path.splitext(target_path)
     validation_target_path = base_target_path + "_validation" + ext
-    
+
+    noise = None
+    seq_lenght = None
+    expected_patterns = []
+    if synth_patterns_path:
+        expected_patterns = parse_expected_patterns(synth_patterns_path)
+        expected_patterns = encode_expected_patterns(expected_patterns, items_to_encoding)
+        noise = filename.split("__")[2].split('_')[1]
+        seq_lenght = filename.split("__")[1][2:]
+
+    extra = {
+        'validation_data_path': validation_data_path,
+        'validation_target_path': validation_target_path,
+        'items_to_encoding': items_to_encoding,
+        'global_auc': rocauc,
+        'avg_sequence_lenght': None,
+        'noise': noise,
+        'dataset_name': filename,
+        'avg_sequence_lenght': seq_lenght
+    }
+
     print(f"Model ROC AUC: {rocauc}")
     results = launch_mcts(data, target_class, top_k=top_k, time_budget=time_budget, theta=theta, 
                          iterations_limit=iterations_limit, expected_patterns=expected_patterns,
-                         validation_data_path=validation_data_path, 
-                         validation_target_path=validation_target_path,
-                         items_to_encoding=items_to_encoding)
-    
+                         extra=extra)
+
     print_results_decode(results, encoding_to_items)
 
     return decode_sequences(results, encoding_to_items)
@@ -214,9 +226,7 @@ def extend_cover_minsup_abs(extend):
     return len(extend) >= conf.MIN_SUPPORT
 
 def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], 
-                validation_data_path=None, validation_target_path=None, items_to_encoding=None):
-
+                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], extra={}):
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
@@ -279,9 +289,5 @@ def launch_mcts(data, target_class, time_budget=conf.TIME_BUDGET, top_k=conf.TOP
 
 
     print('Number iteration mcts: {}'.format(iteration_count))
-
-    return sorted_patterns.get_top_k_non_redundant(data, top_k, 
-                                                   validation_data_path=validation_data_path,
-                                                   validation_target_path=validation_target_path,
-                                                   items_to_encoding=items_to_encoding,
-                                                   pattern_max_len=6)
+    extra['iteration_count'] = iteration_count
+    return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=6, extra=extra)

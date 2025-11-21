@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from collections import Counter
 from statsmodels.stats.multitest import multipletests
-from general.utils import roc_auc_score_binary, is_subsequence
+from general.utils import roc_auc_score_binary, is_subsequence, decode_sequence
 from general.reader import read_data_kosarak
 from general.utils import encode_data, filter_empty_sequences
 from seqscout.global_var import Model
@@ -64,7 +64,7 @@ def calculate_p_value(result, validation_target_class, validation_data, n_subgro
 
     print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern AUC={obs_auc_sg:.4f}, p-value={p_value:.6f}")
 
-    return p_value, obs_auc_diff
+    return p_value, obs_auc_diff, class_balance
 
 def filter_by_significance(
     candidate_patterns,
@@ -94,16 +94,13 @@ def filter_by_significance(
             pattern_idx=idx,
         )
 
-        if res is None:
-            continue
-
-        p, diff = res
+        p, diff, class_balance = res
         if p is None or np.isnan(p) or p <= 0 or p > 1:
             continue
 
         valid_count += 1
         p_values.append(p)
-        records.append((idx, pattern, p, diff))
+        records.append((idx, pattern, p, diff, class_balance))
 
     if not p_values:
         return [], {}
@@ -111,22 +108,28 @@ def filter_by_significance(
     print(f"\n Applying FDR correction")
     rejected, corrected_p, _, _ = multipletests(p_values, alpha=alpha, method='fdr_bh')
 
+    encoding_to_items = {v: k for k, v in items_to_encoding.items()}
+    info = []
     significant = []
-    filtered_info = {}
-    for (idx, pattern, raw_p, diff), is_sig, corr_p in zip(records, rejected, corrected_p):
+    for (idx, pattern, raw_p, diff, class_balance), is_sig, corr_p in zip(records, rejected, corrected_p):
+        info.append({
+            'pattern': decode_sequence(pattern[1], encoding_to_items),
+            'quality': pattern[0],
+            'pattern_auc': pattern[3],
+            'support': len(pattern[2]),
+            'class_balance': dict(class_balance),
+            'p_value': raw_p,
+            'corrected_p': corr_p,
+            'is_sig': is_sig,
+        })
         if is_sig:
             print(f"  Pattern {idx}: AUC diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
             significant.append(pattern)
         else:
-            filtered_info[idx] = {
-                'p_value': raw_p,
-                'corrected_p': corr_p,
-                'reason': f'corrected_p={corr_p:.6f} > alpha={alpha}',
-            }
             print(f"  Pattern {idx}: AUC diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
 
     elapsed = time.time() - start_time
     print(f"\n Found {len(significant)} significant patterns out of {valid_count} tested.")
     print(f"  Validation completed in {elapsed:.2f} seconds.")
 
-    return significant, filtered_info
+    return significant, info
