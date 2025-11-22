@@ -1,16 +1,11 @@
 import general.conf as conf
 
-import math
-
 from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality, \
-    get_idx_from_cumulative_prop, compute_sequence_expand, normalize_scores, jaccard_similarity
+    get_idx_from_cumulative_prop, compute_sequence_expand
 
 
 from seqscout.global_var import Model
 
-
-PW_C = 1.0
-PW_ALPHA = 0.5
 
 class Node():
     def __init__(self, intent, parent, node_hashmap):
@@ -52,17 +47,6 @@ class Node():
         self.number_visits = 1
         self.dead_end = False
 
-    def get_max_expansions(self):
-        visits = max(1, self.number_visits)
-        max_visits = math.ceil(PW_C * (visits ** PW_ALPHA))
-        return max_visits
-
-    def is_widening_allowed(self):
-        if len(self.candidate_sequences_expand) == 0:
-            return False
-
-        return len(self.children) < self.get_max_expansions()
-
     def get_normalized_quality(self):
         return self.quality
 
@@ -97,15 +81,7 @@ class Node():
         return True
 
     def expand(self):
-        if conf.USE_JACCARD_PRIORITY and self.intent is not None:
-            jaccard_scores = [jaccard_similarity(self.intent, seq) for seq in self.candidate_sequences_expand]
-
-            norm_jaccard = normalize_scores(jaccard_scores)
-            norm_log_losses = normalize_scores(self.log_losses)
-
-            weights = [norm_jaccard[i] * norm_log_losses[i] for i in range(len(self.candidate_sequences_expand))]
-        else:
-            weights = self.log_losses
+        weights = self.log_losses
 
         random_object_idx = get_idx_from_cumulative_prop(weights) or 0
         random_object = self.candidate_sequences_expand[random_object_idx]

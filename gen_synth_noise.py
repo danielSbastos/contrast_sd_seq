@@ -6,7 +6,7 @@ from collections import Counter
 import argparse
 import pandas as pd
 import numpy as np
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, log_loss
 
 from src.file_handler import load_signal_rules, load_vocabulary
 from src.utils import get_clean_vocabulary
@@ -96,6 +96,23 @@ def main():
     df_final.to_csv(f"data/{args.filename}.csv", index=False)
     print(f"Dataset final salvo em data/{args.filename}.csv")
 
+    def calculate_log_losses(target_class):
+        i = 0
+        log_losses = []
+        for y_true, confidence in target_class:
+            labels = set(target_class[:, 0])
+            log_losses.append(log_loss([y_true], [confidence], labels=list(labels)))
+            if i % 1000 == 0:
+                print(i)
+            i+=1
+
+        return log_losses
+
+    log_losses_file = f"data/log_losses_{args.filename}.txt"
+    log_losses = calculate_log_losses(df_final[['y_true', 'confidence']].values)
+    np.savetxt(log_losses_file, log_losses)
+    print(f"Log losses salvos em {log_losses_file}")
+
     for seq_str in df_final['sequence']:
         parts = seq_str.split()
         for tok in parts[1:]:
@@ -117,10 +134,6 @@ def main():
     noise_tokens = sorted(noise_token_counts.keys())
     total_noise_count = sum(noise_token_counts.values())
     noise_token_probs = np.array([noise_token_counts[t] / total_noise_count for t in noise_tokens]) if total_noise_count > 0 else None
-
-    with open("config/vocabulary_noise.txt", "w", encoding="utf-8") as vf_noise:
-        for tok in noise_tokens:
-            vf_noise.write(f"{tok}\n")
 
     print("\n--- Gerando Dataset de Validação ---")
     print("Shuffling itemsets in sequences (preserving expected patterns)")
@@ -339,17 +352,6 @@ def main():
     np.savetxt(f"data/{args.filename}_validation.dat", sequences_val_str, fmt="%s")
     df_final_val.to_csv(f"data/{args.filename}_validation.csv", index=False)
     print(f"Arquivos de validação salvos em data/{args.filename}_validation.dat e data/{args.filename}_validation.csv")
-
-    try:
-        import os
-        os.makedirs("config", exist_ok=True)
-        with open("config/vocabulary_validation.txt", "w", encoding="utf-8") as vf:
-            for token in VOCABULARY:
-                vf.write(f"{token}\n")
-        print("Vocabulário de validação salvo em config/vocabulary_validation.txt")
-    except Exception as e:
-        print(f"Aviso: falha ao salvar config/vocabulary_validation.txt: {e}")
-
 
 if __name__ == "__main__":
     main()

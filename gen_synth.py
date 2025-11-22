@@ -137,6 +137,7 @@ def generate_sequences_with_scores_iterative(
 
     for _ in range(n_samples):
         seq_length = np.random.randint(30, 50)
+#        seq_length = np.random.randint(10, 30)
         
         current_vocab = [v for v in vocabulary if v != base_element]
         
