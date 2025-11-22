@@ -1,3 +1,0 @@
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"
-ipython3 -c "from mctsextent.main import get_patterns;get_patterns(path='./data/sequential.dat', target_path='./data/sequential.csv', time_budget=200, top_k=5, theta=0)"
