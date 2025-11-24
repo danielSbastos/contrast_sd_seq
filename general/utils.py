@@ -106,6 +106,7 @@ def create_i_extension(sequence, item, index):
     return tuple(new_sequence)
 
 
+@functools.lru_cache(maxsize=50000)
 def is_subsequence(a, b):
     """ check if sequence a is a subsequence of b
     """
@@ -348,7 +349,7 @@ def print_rocket_league(patterns):
         print('Quality: {}, Pattern: {}'.format(quality, pattern_display))
 
 
-@functools.lru_cache(maxsize=512)
+@functools.lru_cache(maxsize=10000)
 def compute_quality(subsequence, data=None):
     if data is None:
         data = Model.get_data()
@@ -366,7 +367,7 @@ def compute_quality(subsequence, data=None):
     return quality, rocauc, extend
 
 
-@functools.lru_cache(maxsize=512)
+@functools.lru_cache(maxsize=1000)
 def compute_sequence_expand(intent, extend):
     data = Model.get_data()
     if intent is None:
@@ -499,7 +500,7 @@ def filter_empty_sequences(data):
     return tuple([sequence_mutable_to_immutable(i[1:]) for i in data])
     #return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
-@functools.lru_cache(maxsize=512)
+@functools.lru_cache(maxsize=5000)
 def compute_cumulative_probs(items_tuple):
     cumulative_probs = []
     cumulative_sum = 0
@@ -513,6 +514,9 @@ def get_idx_from_cumulative_prop(items):
     cumulative_probs = compute_cumulative_probs(items_tuple)
     total_sum = cumulative_probs[-1] if cumulative_probs else 0
 
+    if total_sum == 0:
+        return None
+
     random_object_idx = None
     rand_num = random.uniform(0, total_sum)
     for i, cumulative in enumerate(cumulative_probs):
@@ -521,17 +525,6 @@ def get_idx_from_cumulative_prop(items):
             break
 
     return random_object_idx
-
-@functools.lru_cache(maxsize=512)
-def jaccard_similarity(sequence1, sequence2):
-    set1 = set(sequence_mutable_to_immutable(sequence1))
-    set2 = set(sequence_mutable_to_immutable(sequence2))
-
-    intersection = set1.intersection(set2)
-    union = set1.union(set2)
-
-    return len(intersection) / len(union)
-
 def normalize_scores(scores):
     min_j = min(scores)
     max_j = max(scores)

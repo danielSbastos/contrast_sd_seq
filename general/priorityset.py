@@ -57,7 +57,6 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
-    results_list = results_list[:500]
 
     global_auc = extra['global_auc']
     validation_data_path = extra['validation_data_path']
@@ -67,6 +66,8 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     print(f"================\nALL PATTERNS\n================")
     d_results = decode_results(results_list, items_to_encoding)
 
+
+    results_list = results_list[:50]
     synth_data = None
     if extra['noise']:
         synth_data = {

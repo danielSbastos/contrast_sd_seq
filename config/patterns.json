@@ -1,72 +1,12 @@
 [
   {
-    "element": "{A B} {D E}",
-    "quantity": 50,
-    "target_auc": 0.75
-  },
-  {
-    "element": "{A B}",
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{D E}",
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {J} {K} {L}",
+    "element": "{A} {B} {C}",
     "quantity": 50,
     "target_auc": 0.65
   },
   {
-    "element": "{I} {J}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {K}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {L}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{J} {K}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{J} {L}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{K} {L}",
-    "quantity": 5,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {J} {K}",
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {J} {L}",
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{I} {K} {L}",
-    "quantity": 10,
-    "target_auc": 0.95
-  },
-  {
-    "element": "{J} {K} {L}",
-    "quantity": 5,
-    "target_auc": 0.95
+    "element": "{E} {F} {G} {H} {I}",
+    "quantity": 50,
+    "target_auc": 0.65
   }
 ]

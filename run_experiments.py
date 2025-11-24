@@ -7,10 +7,7 @@ from datetime import datetime
 
 def run_experiment(filename, output_dir = 'experiments/results'):
     time_budget = 2**30
-
-    iterations_limit = 50_000
-    if filename == 'd_1k__l_10_15__n_0':
-        iterations_limit = 1_000
+    iterations_limit = 15_000
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -29,7 +26,7 @@ def run_experiment(filename, output_dir = 'experiments/results'):
         f")"
     )
    
-    full_cmd = f"ipython3 -c \"{python_cmd_str}\" 2>&1 | tee {output_file}"
+    full_cmd = f"ipython3 -c \"{python_cmd_str}\""
 
     return full_cmd, output_file
 
@@ -59,25 +56,16 @@ def main():
     results_dir = "experiments/results"
 
     dimension_experiment_files = [
-        'd_1k__l_10_15__n_0',
-
-        'd_5k__l_10_15__n_0',
-        'd_5k__l_15_30__n_0',
-        'd_5k__l_30_50__n_0',
-
-        'd_10k__l_10_15__n_0',
-        'd_10k__l_15_30__n_0',
-        'd_10k__l_30_50__n_0',
-
-        'd_20k__l_10_15__n_0',
-        'd_20k__l_15_30__n_0',
-        'd_20k__l_30_50__n_0',
+       #'d_5k__l_10_15__n_0.25',
+       'd_5k__l_25_30__n_0.25',
+       'd_15k__l_10_15__n_0.25',
+       'd_15k__l_25_30__n_0.25',
     ]
 
     noise_experiment_files = [
-        'd_10k__l_15_30__n_0',
-        'd_10k__l_15_30__n_0.5',
-        'd_10k__l_15_30__n_1'
+        #'d_5k__l_10_15__n_0',
+        #'d_5k__l_10_15__n_0.5',
+        #'d_5k__l_10_15__n_1'
     ]
 
     total_experiments = 0

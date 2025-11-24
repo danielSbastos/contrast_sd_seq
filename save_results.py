@@ -1,6 +1,8 @@
 import pandas as pd
 import os
 
+iteration_count = 45_000
+
 def save_all_patterns(
     results,
     global_auc,
@@ -9,7 +11,7 @@ def save_all_patterns(
     timestamp,
     synth_data = {},
 ):
-    base_path = f"./experiments/results/{dataset_name}/{timestamp}"
+    base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)
     file_name = f"{base_path}/all_patterns.csv"
 
@@ -31,7 +33,7 @@ def save_patterns_after_similarity_filter(
     dataset_name,
     timestamp
 ):
-    base_path = f"./experiments/results/{dataset_name}/{timestamp}"
+    base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)
     file_name = f"{base_path}/after_similarity_patterns.csv"
 
@@ -46,7 +48,7 @@ def save_patterns_after_stats_validation(
     dataset_name,
     timestamp,
 ):
-    base_path = f"./experiments/results/{dataset_name}/{timestamp}"
+    base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)
     file_name = f"{base_path}/after_stats_patterns.csv"
 
