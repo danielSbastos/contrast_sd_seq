@@ -46,7 +46,9 @@ file_name = './data/original/splice_bin.dat'
 file_name = './data/original/sequences-TZ-45.txt'
 file_name = './data/original/figures_rc.dat'
 file_name = './data/original/context.data'
-target_class = '1'
+file_name = './data/DNA_train.dat'
+file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
+target_class = '0'
 
 vocab, classes = build_vocab(file_name, kosarak)
 
@@ -130,7 +132,7 @@ dataset = [parse_flatten(line, vocab, kosarak) for line in lines]
 
 collate_fn_with_target = partial(collate_fn, target_class=target_class)
 
-data_loader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=collate_fn_with_target)
+data_loader = DataLoader(dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_with_target)
 
 model = FlatLSTMClassifier(vocab_size=len(vocab), emb_dim=32, hidden_dim=64, num_classes=2)
 criterion = nn.CrossEntropyLoss()
@@ -145,9 +147,13 @@ for epoch in range(num_epochs):
     epoch_loss = 0.0
     for labels_batch, padded_batch, lengths_batch in data_loader:
         optimizer.zero_grad()
+
         outputs = model(padded_batch, lengths_batch)
+
         loss = criterion(outputs, labels_batch)
+
         loss.backward()
+
         optimizer.step()
         
         epoch_loss += loss.item()

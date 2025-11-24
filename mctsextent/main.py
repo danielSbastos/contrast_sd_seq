@@ -74,7 +74,7 @@ def roll_out(node, item_log_losses=None):
     if not sequence: return sequence, 1
 
     seq_items_nb = len([i for j_set in sequence for i in j_set])
-    z = random.randint(0, seq_items_nb - 1 if seq_items_nb else seq_items_nb)
+    z = random.randint(0, int((seq_items_nb - 1)*0.5) if seq_items_nb else seq_items_nb)
 
     item_candidates = []
     for itemset_i, itemset in enumerate(sequence):
@@ -278,6 +278,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
         node_expand, _ = node_sel.expand()
 
         if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
+            print(node_expand.quality, node_expand.rocauc, node_expand.intent)
             quality = node_expand.quality - math.log(len(node_expand.intent) + 1, 10)
             quality += 1
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
@@ -286,6 +287,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
 
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
         if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
+            print(reward_node.quality, reward_node.rocauc, reward_node.intent)
             reward -= math.log(len(sequence_reward) + 1, 10)
             reward += 1
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
@@ -293,11 +295,6 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
         update(node_expand, reward)
 
         iteration_count += 1
-
-        for expected_pattern in expected_patterns:
-            if (node_expand.intent == expected_pattern) or (reward_node.intent == expected_pattern):
-                print(f"Found expected pattern: {expected_pattern} at iteration {iteration_count}")
-                found_expected_patterns += 1
 
         if iteration_count % 100 == 0:
             print(iteration_count)
