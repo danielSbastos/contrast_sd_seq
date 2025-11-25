@@ -152,20 +152,42 @@ def encode_data(data, item_to_encoding):
     :param item_to_encoding:
     :return:
     """
-    has_malformatted_sequences = False
+    missing_items = set()
+    missing_items_count = 0
 
     for line in data:
-        for i, itemset in enumerate(line[1:]):
+        # Process itemsets starting from index 1 (skip class label at index 0)
+        itemsets_to_remove = []
+        for i in range(1, len(line)):
+            itemset = line[i]
             if len(itemset) == 0:
-                has_malformatted_sequences = True
+                # Mark empty itemsets for removal
+                itemsets_to_remove.append(i)
                 continue
+            
             encoded_itemset = set()
             for item in itemset:
-                encoded_itemset.add(item_to_encoding[item])
-            line[i + 1] = encoded_itemset
+                if item in item_to_encoding:
+                    encoded_itemset.add(item_to_encoding[item])
+                else:
+                    # Item not in vocabulary - skip it but track for warning
+                    missing_items.add(item)
+                    missing_items_count += 1
+            
+            # Only update if we have encoded items
+            if len(encoded_itemset) > 0:
+                line[i] = encoded_itemset
+            else:
+                # All items were missing, mark for removal
+                itemsets_to_remove.append(i)
+        
+        # Remove empty itemsets in reverse order to maintain indices
+        for i in sorted(itemsets_to_remove, reverse=True):
+            if i < len(line):
+                del line[i]
 
-        if has_malformatted_sequences:
-            del line[1]
+    if missing_items:
+        print(f"Warning: {missing_items_count} items not found in vocabulary (skipped): {sorted(list(missing_items))[:10]}{'...' if len(missing_items) > 10 else ''}")
 
     return data
 

@@ -108,7 +108,7 @@ def main():
 
         return log_losses
 
-    log_losses_file = f"data/log_losses_{args.filename}.txt"
+    log_losses_file = f"data/log_losses/log_losses_{args.filename}.txt"
     log_losses = calculate_log_losses(df_final[['y_true', 'confidence']].values)
     np.savetxt(log_losses_file, log_losses)
     print(f"Log losses salvos em {log_losses_file}")

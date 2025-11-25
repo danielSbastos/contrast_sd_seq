@@ -1,14 +1,13 @@
 import pandas as pd
 import os
 
-iteration_count = 45_000
-
 def save_all_patterns(
     results,
     global_auc,
     dataset_size,
     dataset_name,
     timestamp,
+    iteration_count,
     synth_data = {},
 ):
     base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
@@ -22,7 +21,6 @@ def save_all_patterns(
     if synth_data:
         df['noise'] = synth_data['noise']
         df['avg_sequence_lenght'] = synth_data['avg_sequence_lenght']
-        df['iteration_count'] = synth_data['iteration_count']
     
     df.to_csv(file_name, index=False)
 
@@ -31,7 +29,8 @@ def save_patterns_after_similarity_filter(
     global_auc,
     theta,
     dataset_name,
-    timestamp
+    timestamp,
+    iteration_count,
 ):
     base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)
@@ -47,6 +46,7 @@ def save_patterns_after_stats_validation(
     global_auc,
     dataset_name,
     timestamp,
+    iteration_count,
 ):
     base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)

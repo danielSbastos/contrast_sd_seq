@@ -8,6 +8,8 @@ import sys
 import random
 import copy
 import math
+import select as select_module
+import threading
 
 from sklearn.metrics import roc_auc_score
 
@@ -170,7 +172,9 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     :return: the top-k best pattern w.r.t WRAcc, and display them
     '''
     path = f"data/{filename}.dat"
+    #path = f"data/{filename}_train.dat"
     target_path=f"data/{filename}.csv"
+    #target_path=f"data/{filename}_train.csv"
     data = read_data_kosarak(path)
     items = extract_items(data)
     items, items_to_encoding, encoding_to_items = encode_items(items)
@@ -189,10 +193,10 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     validation_target_path = None
     
     base_path, ext = os.path.splitext(path)
-    validation_data_path = base_path + "_validation" + ext
+    validation_data_path = base_path + "_test" + ext
 
     base_target_path, ext = os.path.splitext(target_path)
-    validation_target_path = base_target_path + "_validation" + ext
+    validation_target_path = base_target_path + "_test" + ext
 
     if not os.path.isfile(validation_target_path):
         validation_target_path = target_path
@@ -219,7 +223,7 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     }
 
 
-    log_losses_file = f"data/log_losses_{filename}.txt"
+    log_losses_file = f"data/log_losses/log_losses_{filename}.txt"
     try:
         log_losses = np.loadtxt(log_losses_file)
         print("Loaded log losses file")
@@ -266,9 +270,27 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
 
-    found_expected_patterns = 0
+    user_stopped = False
+    user_show = False
 
-    while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit:
+    def check_user_input():
+        nonlocal user_stopped
+        nonlocal user_show
+        
+        try:
+            if sys.stdin.isatty() and select_module.select([sys.stdin], [], [], 0)[0]:
+                user_input = sys.stdin.readline().strip().upper()
+                if user_input == 'STOP':
+                    user_stopped = True
+                    return True
+                elif user_input == 'SHOW':
+                    user_show = True
+                    return False
+        except (select_module.error, AttributeError, OSError):
+            pass
+        return False
+
+    while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit and not user_stopped:
         node_sel = select(root_node)
 
         if node_sel == 'finished':
@@ -278,7 +300,6 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
         node_expand, _ = node_sel.expand()
 
         if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
-            print(node_expand.quality, node_expand.rocauc, node_expand.intent)
             quality = node_expand.quality - math.log(len(node_expand.intent) + 1, 10)
             quality += 1
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
@@ -287,7 +308,6 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
 
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
         if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
-            print(reward_node.quality, reward_node.rocauc, reward_node.intent)
             reward -= math.log(len(sequence_reward) + 1, 10)
             reward += 1
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
@@ -298,8 +318,13 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
 
         if iteration_count % 100 == 0:
             print(iteration_count)
-
+            if check_user_input():
+                break
+            
+            if user_show:
+                sorted_patterns.show_all(extra, pattern_max_len=3)
+                user_show = False
 
     print('Number iteration mcts: {}'.format(iteration_count))
     extra['iteration_count'] = iteration_count
-    return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=6, extra=extra)
+    return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=3, extra=extra)

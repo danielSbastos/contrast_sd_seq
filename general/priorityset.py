@@ -49,6 +49,15 @@ def decode_results(results_list, items_to_encoding):
     print(f"{'='*80}\n")
     return decoded_results
 
+def show_results(results, pattern_max_len, extra):
+    results_list = list(results)
+    results_list.sort(key=lambda x: x[0], reverse=True)
+    results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
+    print(f"================\nALL PATTERNS\n================")
+
+    items_to_encoding = extra['items_to_encoding']
+    decode_results(results_list, items_to_encoding)
+
 
 def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
                    pattern_max_len=float('inf'), extra={}):
@@ -82,6 +91,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         len(data),
         extra['dataset_name'],
         timestamp,
+        extra['iteration_count'],
         synth_data=synth_data,
     )
 
@@ -105,7 +115,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
             non_redundant_patterns.append(result)
     
     d_results = decode_results(non_redundant_patterns, items_to_encoding)
-    save_patterns_after_similarity_filter(d_results, global_auc, theta, extra['dataset_name'], timestamp)
+    save_patterns_after_similarity_filter(d_results, global_auc, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
 
     print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
     significant_patterns, significance_info = filter_by_significance(
@@ -120,7 +130,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
     decode_results(significant_patterns, items_to_encoding)
 
-    save_patterns_after_stats_validation(significance_info, global_auc, extra['dataset_name'], timestamp)
+    save_patterns_after_stats_validation(significance_info, global_auc, extra['dataset_name'], timestamp, extra['iteration_count'])
 
     return significant_patterns[:k]
 
@@ -193,6 +203,9 @@ class PrioritySet(object):
     def get_top_k(self, k):
         data = heapq.nlargest(k, self.heap)
         return data
+    
+    def show_all(self, extra, pattern_max_len=float('inf')):
+        show_results(self.heap, pattern_max_len, extra)
 
     def get_top_k_non_redundant(self, data, k, pattern_max_len = float('inf'), extra = {}):
         filtered_result = filter_results(self.heap, data, self.theta, k, 

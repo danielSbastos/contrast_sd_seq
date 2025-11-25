@@ -55,10 +55,19 @@ def run_experiment_subprocess(cmd, experiment_name):
 def main():
     results_dir = "experiments/results"
 
+    constrasting_experiment_files = [
+       #'d_5k__l_10_15__n_0.25__contrasting',
+    ]
+
     dimension_experiment_files = [
-       #'d_5k__l_10_15__n_0.25',
-       'd_5k__l_25_30__n_0.25',
-       'd_15k__l_10_15__n_0.25',
+       #'d_5k__l_7_10__n_0.25',
+       #'d_5k__l_7_10__n_0.25',
+       #'d_5k__l_7_10__n_0.25',
+       'd_5k__l_10_15__n_0.25',
+       #'d_5k__l_25_30__n_0.25',
+
+       #'d_15k__l_7_10__n_0.25',
+       #'d_15k__l_10_15__n_0.25',
        'd_15k__l_25_30__n_0.25',
     ]
 
@@ -109,6 +118,24 @@ def main():
         else:
             failed_experiments += 1
 
+
+    print(f"====================================================")
+    print(f"---------- RUNNING CONSTRASTING TESTS ----------------")
+    print(f"====================================================")
+    for file in constrasting_experiment_files:
+        print(f"+++++++++++ {file} ++++++++++")
+        cmd, output_file = run_experiment(
+            file,
+            results_dir
+        )
+
+        success, duration = run_experiment_subprocess(cmd, file)
+        experiment_durations[file] = duration
+
+        if success:
+            successful_experiments += 1
+        else:
+            failed_experiments += 1
 
     print(f"================")
     print("Summary")
