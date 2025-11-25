@@ -1,8 +1,6 @@
 # Arquivos de dados gerados
 data/**/*
 
-experiments/results/**/*
-
 seq_emm.pem
 
 # Python

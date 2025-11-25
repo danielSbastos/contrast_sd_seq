@@ -1,0 +1,2 @@
+pattern,quality,pattern_auc,support,class_balance,p_value,corrected_p,is_sig,global_auc
+[{'B'}],1.3129665703337863,0.6512,50,"{0.0: 25, 1.0: 25}",0.000999000999000999,0.000999000999000999,True,0.8996067052249779
