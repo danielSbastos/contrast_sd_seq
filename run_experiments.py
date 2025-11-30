@@ -56,23 +56,21 @@ def main():
     results_dir = "experiments/results"
 
     constrasting_experiment_files = [
-       #'d_5k__l_10_15__n_0.25__contrasting',
+       'd_5k__l_10_15__n_0.25__contrasting',
     ]
 
     dimension_experiment_files = [
        #'d_5k__l_7_10__n_0.25',
-       #'d_5k__l_7_10__n_0.25',
-       #'d_5k__l_7_10__n_0.25',
-       'd_5k__l_10_15__n_0.25',
-       #'d_5k__l_25_30__n_0.25',
+       #'d_5k__l_10_15__n_0.25',
+       'd_5k__l_25_30__n_0.25',
 
-       #'d_15k__l_7_10__n_0.25',
-       #'d_15k__l_10_15__n_0.25',
+       'd_15k__l_7_10__n_0.25',
+       'd_15k__l_10_15__n_0.25',
        'd_15k__l_25_30__n_0.25',
     ]
 
     noise_experiment_files = [
-        #'d_5k__l_10_15__n_0',
+       #'d_5k__l_10_15__n_0',
         #'d_5k__l_10_15__n_0.5',
         #'d_5k__l_10_15__n_1'
     ]

@@ -163,7 +163,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None):
+def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3):
     '''
     :param path: path to the file containing data, in kosarak format
     :param target_class: the target class we want to find pattern of: string
@@ -171,10 +171,14 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     :param time_budget: the time we give to the algorithm
     :return: the top-k best pattern w.r.t WRAcc, and display them
     '''
-    path = f"data/{filename}.dat"
-    #path = f"data/{filename}_train.dat"
-    target_path=f"data/{filename}.csv"
-    #target_path=f"data/{filename}_train.csv"
+
+    path = f"data/{filename}_train.dat"
+    target_path=f"data/{filename}_train.csv"
+
+    if not os.path.isfile(path):
+        path = f"data/{filename}.dat"
+        target_path=f"data/{filename}.csv"
+
     data = read_data_kosarak(path)
     items = extract_items(data)
     items, items_to_encoding, encoding_to_items = encode_items(items)
@@ -237,7 +241,7 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     print(f"Model ROC AUC: {rocauc}")
     results = launch_mcts(data, target_class, log_losses, top_k=top_k, time_budget=time_budget, theta=theta, 
                          iterations_limit=iterations_limit, expected_patterns=expected_patterns,
-                         extra=extra)
+                         extra=extra, max_length=max_length)
 
     print_results_decode(results, encoding_to_items)
 
@@ -247,7 +251,7 @@ def extend_cover_minsup_abs(extend):
     return len(extend) >= conf.MIN_SUPPORT
 
 def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], extra={}):
+                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], extra={}, max_length=6):
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
@@ -269,6 +273,8 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
+
+    smallest_auc = float('inf')
 
     user_stopped = False
     user_show = False
@@ -304,6 +310,10 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
             quality += 1
             sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
 
+            if node_expand.rocauc < smallest_auc:
+                smallest_auc = node_expand.rocauc
+                print(f"Smallest AUC: {smallest_auc}. Pattern: {node_expand.intent}")
+
         sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
 
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
@@ -311,6 +321,11 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
             reward -= math.log(len(sequence_reward) + 1, 10)
             reward += 1
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
+        
+            if reward_node.rocauc < smallest_auc:
+                smallest_auc = reward_node.rocauc
+                print(f"Smallest AUC: {smallest_auc}. Pattern: {reward_node.intent}")
+
 
         update(node_expand, reward)
 
@@ -322,9 +337,9 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
                 break
             
             if user_show:
-                sorted_patterns.show_all(extra, pattern_max_len=3)
+                sorted_patterns.show_all(extra, pattern_max_len=max_length)
                 user_show = False
 
     print('Number iteration mcts: {}'.format(iteration_count))
     extra['iteration_count'] = iteration_count
-    return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=3, extra=extra)
+    return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=max_length, extra=extra)

@@ -6,6 +6,7 @@ import general.conf as conf
 from general.utils import is_subsequence, sequence_mutable_to_immutable
 from statistical_validation import filter_by_significance
 from save_results import save_all_patterns, save_patterns_after_similarity_filter, save_patterns_after_stats_validation
+from seqscout.global_var import Model
 
 
 def jaccard_measure_misere(sequence1, sequence2, data):
@@ -53,6 +54,10 @@ def show_results(results, pattern_max_len, extra):
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
+
+    acceptable_auc_difference = Model.get_rocauc() - 0.05
+    results_list = [result for result in results_list if result[3] <= acceptable_auc_difference]
+
     print(f"================\nALL PATTERNS\n================")
 
     items_to_encoding = extra['items_to_encoding']
@@ -65,7 +70,11 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
+
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
+
+    acceptable_auc_difference = Model.get_rocauc() - 0.05
+    results_list = [result for result in results_list if result[3] <= acceptable_auc_difference]
 
     global_auc = extra['global_auc']
     validation_data_path = extra['validation_data_path']
@@ -76,7 +85,6 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     d_results = decode_results(results_list, items_to_encoding)
 
 
-    results_list = results_list[:50]
     synth_data = None
     if extra['noise']:
         synth_data = {

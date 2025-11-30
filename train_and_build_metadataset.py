@@ -16,7 +16,7 @@ from collections import Counter
 from tqdm import tqdm
 
 # Configuration
-MAX_SEQUENCE_LENGTH = 1500  # Truncate sequences longer than this
+MAX_SEQUENCE_LENGTH = 200  # Truncate sequences longer than this
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def build_vocab(filepath, kosarak=True):
@@ -53,11 +53,11 @@ file_name = './data/original/sequences-TZ-45.txt'
 file_name = './data/original/figures_rc.dat'
 #file_name = './data/original/context.data'
 #file_name = './data/DNA_train.dat'
-#file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
-file_name = './data/sequential_transactions_one_fraud_label.dat'
+file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
 #file_name = './data/Youtube.dat'
-file_name = './data/pkdd_sequences_rich.dat'
-target_class = '1'  # Fraud class (1 = fraud, 0 = normal)
+#file_name = './data/pkdd_sequences_rich_expanded.dat'
+#file_name = './data/twitter-processed.dat'
+target_class = '1'
 
 print(f"Building vocabulary from {file_name}...")
 vocab, classes = build_vocab(file_name, kosarak)
@@ -265,7 +265,7 @@ print("Using Focal Loss for imbalanced classification")
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Training epochs
-num_epochs = 7
+num_epochs = 5
 
 print("\nStarting training")
 model.train()
