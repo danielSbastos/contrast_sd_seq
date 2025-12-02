@@ -57,6 +57,7 @@ file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
 #file_name = './data/Youtube.dat'
 #file_name = './data/pkdd_sequences_rich_expanded.dat'
 #file_name = './data/twitter-processed.dat'
+file_name = './data/pkdd_sequences_rich_full.dat'
 target_class = '1'
 
 print(f"Building vocabulary from {file_name}...")
@@ -265,7 +266,7 @@ print("Using Focal Loss for imbalanced classification")
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Training epochs
-num_epochs = 5
+num_epochs = 13
 
 print("\nStarting training")
 model.train()
