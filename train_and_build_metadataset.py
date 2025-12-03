@@ -53,11 +53,14 @@ file_name = './data/original/sequences-TZ-45.txt'
 file_name = './data/original/figures_rc.dat'
 #file_name = './data/original/context.data'
 #file_name = './data/DNA_train.dat'
-file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
+#file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
 #file_name = './data/Youtube.dat'
 #file_name = './data/pkdd_sequences_rich_expanded.dat'
 #file_name = './data/twitter-processed.dat'
-file_name = './data/pkdd_sequences_rich_full.dat'
+file_name = './data/pkdd_sequences_rich_hashed.dat'
+file_name = './data/original/student_vle_sequences_balanced.dat'
+file_name = './data/original/assessment_sequences.dat'
+file_name = './data/original/student_sequences_plus.dat'
 target_class = '1'
 
 print(f"Building vocabulary from {file_name}...")
@@ -136,7 +139,7 @@ class BiLSTMAttentionClassifier(nn.Module):
         self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
         self.lstm = nn.LSTM(emb_dim, hidden_dim, num_layers=num_layers, 
                            batch_first=True, bidirectional=True, dropout=dropout if num_layers > 1 else 0)
-        self.attention = nn.Linear(hidden_dim * 2, 1)  # *2 because bidirectional
+        self.attention = nn.Linear(hidden_dim * 2, 1)
         self.fc = nn.Linear(hidden_dim * 2, num_classes)
         self.dropout = nn.Dropout(dropout)
 
@@ -144,18 +147,14 @@ class BiLSTMAttentionClassifier(nn.Module):
         embedded = self.embedding(x)
         packed = pack_padded_sequence(embedded, lengths.cpu(), batch_first=True, enforce_sorted=False)
         lstm_out, _ = self.lstm(packed)
-        # Unpack the sequence
         lstm_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
         
-        # Attention mechanism
-        attention_weights = self.attention(lstm_out).squeeze(-1)  # [batch, seq_len]
-        # Mask out padding positions
+        attention_weights = self.attention(lstm_out).squeeze(-1)
         mask = (torch.arange(attention_weights.size(1), device=x.device).unsqueeze(0) < lengths.unsqueeze(1))
         attention_weights = attention_weights.masked_fill(~mask, float('-inf'))
         attention_weights = F.softmax(attention_weights, dim=1)
         
-        # Weighted sum of LSTM outputs
-        attended = torch.bmm(attention_weights.unsqueeze(1), lstm_out).squeeze(1)  # [batch, hidden*2]
+        attended = torch.bmm(attention_weights.unsqueeze(1), lstm_out).squeeze(1)
         attended = self.dropout(attended)
         out = self.fc(attended)
         return out
@@ -178,12 +177,10 @@ for line in tqdm(lines, desc="Parsing"):
 if truncated_count > 0:
     print(f"Warning: {truncated_count} sequences were truncated to {MAX_SEQUENCE_LENGTH} tokens")
 
-# Calculate average sequence length
 avg_len = sum(len(seq) for _, seq in dataset) / len(dataset)
 max_len = max(len(seq) for _, seq in dataset)
 print(f"Sequence length stats: avg={avg_len:.1f}, max={max_len}")
 
-# Split dataset into train and test
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 print(f"\nSplitting dataset into train ({1-TEST_SIZE:.0%}) and test ({TEST_SIZE:.0%}) sets...")
@@ -193,7 +190,6 @@ print(f"Test set: {len(test_dataset)} sequences")
 
 collate_fn_with_target = partial(collate_fn, target_class=target_class)
 
-# Adjust batch sizes based on sequence length and dataset size
 if MAX_SEQUENCE_LENGTH > 1000:
     train_batch_size = 32 if DEVICE.type == 'cuda' else 16
     eval_batch_size = 16 if DEVICE.type == 'cuda' else 8
@@ -205,17 +201,14 @@ print(f"Batch sizes: train={train_batch_size}, eval={eval_batch_size}")
 
 data_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, collate_fn=collate_fn_with_target, num_workers=2 if DEVICE.type == 'cuda' else 0)
 
-# Create model
 model = BiLSTMAttentionClassifier(vocab_size=len(vocab), emb_dim=32, hidden_dim=32, num_classes=2, num_layers=1, dropout=0.1)
 print(f"Using model: BiLSTM with Attention")
 
 model = model.to(DEVICE)
 
-# Calculate class weights to handle severe imbalance
 train_class_counts = Counter([label for label, _ in train_dataset])
 total_train = len(train_dataset)
 
-# Map to binary labels based on target_class
 binary_class_counts = Counter()
 for label, _ in train_dataset:
     binary_label = 1 if label == target_class else 0
@@ -229,7 +222,6 @@ print(f"  Binary Class 0 (Other): {class_0_binary_count} samples")
 print(f"  Binary Class 1 (Target '{target_class}'): {class_1_binary_count} samples")
 print(f"  Imbalance ratio: {max(class_0_binary_count, class_1_binary_count) / min(class_0_binary_count, class_1_binary_count):.2f}:1")
 
-# Calculate weights: inverse frequency weighting (higher weight for minority class)
 if class_0_binary_count > 0 and class_1_binary_count > 0:
     weight_0 = total_train / (2.0 * class_0_binary_count)
     weight_1 = total_train / (2.0 * class_1_binary_count)
@@ -240,7 +232,6 @@ else:
     class_weights = None
     print("Warning: Could not calculate class weights - severe imbalance detected")
 
-# Focal Loss for handling severe class imbalance
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
         super().__init__()
@@ -259,14 +250,12 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         return focal_loss
 
-# Use Focal Loss for better handling of class imbalance
 criterion = FocalLoss(alpha=class_weights, gamma=2.0)
 print("Using Focal Loss for imbalanced classification")
 
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Training epochs
-num_epochs = 13
+num_epochs = 50
 
 print("\nStarting training")
 model.train()
@@ -377,7 +366,6 @@ def to_kasarok(padded, label, reversed_vocab, str_target=True):
     
     return seq
 
-# Evaluate on train and test sets
 train_metadataset, train_predictions, train_labels, train_original_labels, train_confidences = evaluate_and_build_metadataset(
     eval_loader_train, train_dataset, "train"
 )
@@ -386,7 +374,6 @@ test_metadataset, test_predictions, test_labels, test_original_labels, test_conf
     eval_loader_test, test_dataset, "test"
 )
 
-# Print performance metrics for both sets
 print("\n" + "="*30)
 print("TRAIN SET PERFORMANCE METRICS")
 print("="*30)
@@ -416,7 +403,6 @@ print(f"\nTest Class distribution:")
 print(f"  Class 0 (others): {sum(1 for l in test_labels if l == 0)} samples")
 print(f"  Class 1 ({target_class}): {sum(1 for l in test_labels if l == 1)} samples")
 
-# Save train and test metadatasets
 base_name = file_name.split('/')[-1].split('.')[0]
 
 train_metadataset_file = f"data/emm_{base_name}_train.csv"
