@@ -218,6 +218,8 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     extra = {
         'validation_data_path': validation_data_path,
         'validation_target_path': validation_target_path,
+        'train_data_path': path,
+        'train_target_path': target_path,
         'items_to_encoding': items_to_encoding,
         'global_auc': rocauc,
         'avg_sequence_lenght': None,

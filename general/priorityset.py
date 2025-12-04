@@ -1,4 +1,5 @@
 import heapq
+import os
 from datetime import datetime
 from general.utils import decode_sequence
 import general.conf as conf
@@ -79,11 +80,12 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     global_auc = extra['global_auc']
     validation_data_path = extra['validation_data_path']
     validation_target_path = extra['validation_target_path']
+    train_data_path = extra['train_data_path']
+    train_target_path = extra['train_target_path']
     items_to_encoding = extra['items_to_encoding']
 
     print(f"================\nALL PATTERNS\n================")
     d_results = decode_results(results_list, items_to_encoding)
-
 
     synth_data = None
     if extra['noise']:
@@ -130,6 +132,8 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         non_redundant_patterns[:k_prime],
         validation_data_path=validation_data_path,
         validation_target_path=validation_target_path,
+        train_data_path=train_data_path,
+        train_target_path=train_target_path,
         items_to_encoding=items_to_encoding,
         alpha=alpha,
         n_subgroups=1000,

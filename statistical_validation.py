@@ -39,7 +39,8 @@ def find_matching_subgroups(target_class, class_balance, n_subgroups=1000, seed=
     return subgroups
 
 
-def calculate_p_value(result, validation_target_class, validation_data, n_subgroups=1000, pattern_idx=None):
+def calculate_p_value(result, validation_target_class, validation_data, n_subgroups=1000, pattern_idx=None, 
+                     train_target_class=None, train_data=None):
     intent = result[1]
 
     validation_extend = [i for i, seq in enumerate(validation_data) if is_subsequence(intent, seq)]
@@ -64,7 +65,9 @@ def calculate_p_value(result, validation_target_class, validation_data, n_subgro
 
     print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern AUC={obs_auc_sg:.4f}, p-value={p_value:.6f}")
 
-    return p_value, obs_auc_diff, class_balance
+    train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq)]
+    class_balance_train = calculate_class_balance(train_target_class, train_extend)
+    return p_value, obs_auc_diff, class_balance_train
 
 def filter_by_significance(
     candidate_patterns,
@@ -72,7 +75,9 @@ def filter_by_significance(
     validation_target_path,
     items_to_encoding,
     alpha=0.05,
-    n_subgroups=1000
+    n_subgroups=1000,
+    train_data_path=None,
+    train_target_path=None
 ):
     start_time = time.time()
     validation_data_raw = read_data_kosarak(validation_data_path)
@@ -80,6 +85,10 @@ def filter_by_significance(
     validation_target_class = pd.read_csv(validation_target_path)[['y_true', 'confidence']].values
     Model.set_validation_data(validation_data)
     Model.set_validation_target_class(validation_target_class)
+
+    train_data_raw = read_data_kosarak(train_data_path)
+    train_data = filter_empty_sequences(encode_data(train_data_raw, items_to_encoding))
+    train_target_class = pd.read_csv(train_target_path)[['y_true', 'confidence']].values
 
     p_values, records = [], []
     valid_count = 0
@@ -92,6 +101,8 @@ def filter_by_significance(
             validation_data,
             n_subgroups,
             pattern_idx=idx,
+            train_target_class=train_target_class,
+            train_data=train_data,
         )
 
         p, diff, class_balance = res
