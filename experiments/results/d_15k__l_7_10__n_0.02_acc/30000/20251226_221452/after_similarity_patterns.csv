@@ -1,0 +1,2 @@
+pattern,quality,support,pattern_accuracy,global_accuracy,theta
+"[{'A'}, {'C'}]",1.0381889938873403,50,0.6,0.8990033222591363,0.2
