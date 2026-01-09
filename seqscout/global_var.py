@@ -6,7 +6,7 @@ def increase_it_number():
 
 
 class Model:
-    MODEL_ROCAUC = 0
+    MODEL_ACCURACY = 0
     LABELS = []
     TARGET_CLASS = None
     LOG_LOSSES = None
@@ -15,12 +15,12 @@ class Model:
     VALIDATION_TARGET_CLASS = None
 
     @classmethod
-    def set_rocauc(cls, value):
-        cls.MODEL_ROCAUC = value
+    def set_accuracy(cls, value):
+        cls.MODEL_ACCURACY = value
     
     @classmethod
-    def get_rocauc(cls):
-        return cls.MODEL_ROCAUC
+    def get_accuracy(cls):
+        return cls.MODEL_ACCURACY
 
     @classmethod
     def set_labels(cls, value):

@@ -1,5 +1,6 @@
 from re import A
 import general.conf as conf
+from collections import Counter
 
 from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality, \
     get_idx_from_cumulative_prop, compute_sequence_expand
@@ -23,10 +24,11 @@ class Node():
         self.depth = 0 if parent is None else parent.depth + 1
 
         self._quality = None
-        self._rocauc = None
+        self._accuracy = None
         self._extend = None
         self._candidate_sequences_expand = None
         self._log_losses = None
+        self._class_balance_score = None
 
         if parent != None:
             self.parents = [parent]
@@ -41,19 +43,19 @@ class Node():
     @property
     def quality(self):
         if self._quality is None:
-            self._quality, self._rocauc, self._extend = self.get_extend_and_quality(self.intent)
+            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
         return self._quality
 
     @property
-    def rocauc(self):
-        if self._rocauc is None:
-            self._quality, self._rocauc, self._extend = self.get_extend_and_quality(self.intent)
-        return self._rocauc
+    def accuracy(self):
+        if self._accuracy is None:
+            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
+        return self._accuracy
 
     @property
     def extend(self):
         if self._extend is None:
-            self._quality, self._rocauc, self._extend = self.get_extend_and_quality(self.intent)
+            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
         return self._extend
 
     @property

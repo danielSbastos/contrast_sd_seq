@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import pickle
+import os
 
 import torch
 import torch.optim as optim
@@ -15,8 +17,7 @@ from functools import partial
 from collections import Counter
 from tqdm import tqdm
 
-# Configuration
-MAX_SEQUENCE_LENGTH = 200  # Truncate sequences longer than this
+MAX_SEQUENCE_LENGTH = 10000
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def build_vocab(filepath, kosarak=True):
@@ -53,14 +54,16 @@ file_name = './data/original/sequences-TZ-45.txt'
 file_name = './data/original/figures_rc.dat'
 #file_name = './data/original/context.data'
 #file_name = './data/DNA_train.dat'
-#file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
+file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
 #file_name = './data/Youtube.dat'
 #file_name = './data/pkdd_sequences_rich_expanded.dat'
-file_name = './data/twitter-processed.dat'
+#file_name = './data/twitter-processed.dat'
 #file_name = './data/pkdd_sequences_rich_hashed.dat'
 #file_name = './data/original/student_vle_sequences_balanced.dat'
 #file_name = './data/original/assessment_sequences.dat'
 #file_name = './data/original/student_sequences_plus.dat'
+#file_name = './data/ieee_fraud_sequences.dat'
+#file_name = './data/malware.dat'
 target_class = '1'
 
 print(f"Building vocabulary from {file_name}...")
@@ -130,10 +133,6 @@ def collate_fn(batch, target_class):
     return binary_labels, padded, lengths
 
 class BiLSTMAttentionClassifier(nn.Module):
-    """
-    Bidirectional LSTM with Attention - Best for sequential data with class imbalance.
-    Uses attention to focus on important parts of the sequence.
-    """
     def __init__(self, vocab_size, emb_dim, hidden_dim, num_classes, num_layers=1, dropout=0.1):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
@@ -255,7 +254,7 @@ print("Using Focal Loss for imbalanced classification")
 
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 7
+num_epochs = 25
 
 print("\nStarting training")
 model.train()
@@ -422,3 +421,58 @@ test_metadataset.to_csv(test_metadataset_file, index=False)
 np.savetxt(test_metadataset_sequences, test_metadataset['sequence'].values, fmt="%s")
 print(f"  Saved: {test_metadataset_file}")
 print(f"  Saved: {test_metadataset_sequences}")
+
+# Save the trained model and all necessary information
+# To load and use the model later:
+#   import pickle
+#   import torch
+#   with open('data/emm_{base_name}_model.pkl', 'rb') as f:
+#       model_info = pickle.load(f)
+#   model = BiLSTMAttentionClassifier(
+#       vocab_size=model_info['vocab_size'],
+#       emb_dim=model_info['emb_dim'],
+#       hidden_dim=model_info['hidden_dim'],
+#       num_classes=model_info['num_classes'],
+#       num_layers=model_info['num_layers'],
+#       dropout=model_info['dropout']
+#   )
+#   model.load_state_dict(model_info['model_state_dict'])
+#   model.eval()
+#   # Use model_info['vocab'] for encoding sequences
+#   # Use model_info['target_class'] and model_info['kosarak'] for preprocessing
+
+model_save_path = f"data/emm_{base_name}_model.pkl"
+print(f"\nSaving trained model and configuration to {model_save_path}...")
+
+model_info = {
+    'model_state_dict': model.state_dict(),
+    'vocab_size': len(vocab),
+    'emb_dim': 32,
+    'hidden_dim': 32,
+    'num_classes': 2,
+    'num_layers': 1,
+    'dropout': 0.1,
+    'vocab': vocab, 
+    'max_sequence_length': MAX_SEQUENCE_LENGTH,
+    'target_class': target_class,
+    'kosarak': kosarak,
+    'class_weights': class_weights.cpu() if class_weights is not None else None,
+    'learning_rate': 0.001,
+    'num_epochs': num_epochs,
+    'optimizer': 'Adam',
+    'model_class': 'BiLSTMAttentionClassifier',
+    'train_accuracy': train_accuracy,
+    'test_accuracy': test_accuracy,
+    'file_name': file_name,
+    'train_size': len(train_dataset),
+    'test_size': len(test_dataset),
+}
+
+os.makedirs(os.path.dirname(model_save_path) if os.path.dirname(model_save_path) else '.', exist_ok=True)
+
+with open(model_save_path, 'wb') as f:
+    pickle.dump(model_info, f)
+
+print(f"  saved model configuration to: {model_save_path}")
+print(f"  vocabulary size: {len(vocab)}")
+print(f"  performance metrics: train acc: {train_accuracy:.4f}, test acc: {test_accuracy:.4f})")

@@ -11,7 +11,7 @@ import math
 import select as select_module
 import threading
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score
 
 import general.conf as conf
 
@@ -164,14 +164,6 @@ def update(node, reward):
         update_nodes.remove(node)
 
 def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3):
-    '''
-    :param path: path to the file containing data, in kosarak format
-    :param target_class: the target class we want to find pattern of: string
-    :param top_k: the number of patterns we want to get
-    :param time_budget: the time we give to the algorithm
-    :return: the top-k best pattern w.r.t WRAcc, and display them
-    '''
-
     path = f"data/{filename}_train.dat"
     target_path=f"data/{filename}_train.csv"
 
@@ -189,9 +181,16 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     Model.set_labels(list(target_file['y_true'].unique()))
     positive_class_scores = target_file['confidence']
-    rocauc = roc_auc_score(target_file['y_true'].tolist(), positive_class_scores)
+    y_true = target_file['y_true'].tolist()
+    
+    unique_labels = sorted(target_file['y_true'].unique())
+    positive_class = unique_labels[1] if len(unique_labels) == 2 else unique_labels[-1]
+    negative_class = unique_labels[0]
+    
+    predictions = (positive_class_scores > 0.5).map(lambda x: positive_class if x else negative_class).tolist()
+    accuracy = accuracy_score(y_true, predictions)
 
-    Model.set_rocauc(rocauc)
+    Model.set_accuracy(accuracy)
 
     validation_data_path = None
     validation_target_path = None
@@ -221,13 +220,12 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
         'train_data_path': path,
         'train_target_path': target_path,
         'items_to_encoding': items_to_encoding,
-        'global_auc': rocauc,
+        'global_accuracy': accuracy,
         'avg_sequence_lenght': None,
         'noise': noise,
         'dataset_name': filename,
         'avg_sequence_lenght': seq_lenght
     }
-
 
     log_losses_file = f"data/log_losses/log_losses_{filename}.txt"
     try:
@@ -240,7 +238,7 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     Model.set_log_losses(log_losses)
 
-    print(f"Model ROC AUC: {rocauc}")
+    print(f"Model Accuracy: {accuracy}")
     results = launch_mcts(data, target_class, log_losses, top_k=top_k, time_budget=time_budget, theta=theta, 
                          iterations_limit=iterations_limit, expected_patterns=expected_patterns,
                          extra=extra, max_length=max_length)
@@ -276,7 +274,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
 
-    smallest_auc = float('inf')
+    smallest_accuracy = float('inf')
 
     user_stopped = False
     user_show = False
@@ -307,26 +305,26 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
 
         node_expand, _ = node_sel.expand()
 
-        if node_expand.quality > 0 and node_expand.rocauc > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
+        if node_expand.quality > 0 and node_expand.accuracy > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
             quality = node_expand.quality - math.log(len(node_expand.intent) + 1, 10)
             quality += 1
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.rocauc)
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.accuracy)
 
-            if node_expand.rocauc < smallest_auc:
-                smallest_auc = node_expand.rocauc
-                print(f"Smallest AUC: {smallest_auc}. Pattern: {node_expand.intent}")
+            if node_expand.accuracy < smallest_accuracy:
+                smallest_accuracy = node_expand.accuracy
+                print(f"Smallest Accuracy: {smallest_accuracy}. Pattern: {node_expand.intent}")
 
         sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
 
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
-        if reward_node.quality > 0 and reward_node.rocauc > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
+        if reward_node.quality > 0 and reward_node.accuracy > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
             reward -= math.log(len(sequence_reward) + 1, 10)
             reward += 1
-            sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.rocauc)
+            sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.accuracy)
         
-            if reward_node.rocauc < smallest_auc:
-                smallest_auc = reward_node.rocauc
-                print(f"Smallest AUC: {smallest_auc}. Pattern: {reward_node.intent}")
+            if reward_node.accuracy < smallest_accuracy:
+                smallest_accuracy = reward_node.accuracy
+                print(f"Smallest Accuracy: {smallest_accuracy}. Pattern: {reward_node.intent}")
 
 
         update(node_expand, reward)

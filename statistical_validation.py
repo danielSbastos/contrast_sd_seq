@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from collections import Counter
 from statsmodels.stats.multitest import multipletests
-from general.utils import roc_auc_score_binary, is_subsequence, decode_sequence
+from general.utils import accuracy_score_binary, is_subsequence, decode_sequence
 from general.reader import read_data_kosarak
 from general.utils import encode_data, filter_empty_sequences
 from seqscout.global_var import Model
@@ -47,27 +47,27 @@ def calculate_p_value(result, validation_target_class, validation_data, n_subgro
     support = len(validation_extend)
     class_balance = calculate_class_balance(validation_target_class, validation_extend)
 
-    obs_auc_sg = roc_auc_score_binary(validation_target_class[validation_extend, 0], validation_target_class[validation_extend, 1])
-    auc_global = roc_auc_score_binary(validation_target_class[:, 0], validation_target_class[:, 1])
-    obs_auc_diff = auc_global - obs_auc_sg
+    obs_accuracy_sg = accuracy_score_binary(validation_target_class[validation_extend, 0], validation_target_class[validation_extend, 1])
+    accuracy_global = accuracy_score_binary(validation_target_class[:, 0], validation_target_class[:, 1])
+    obs_accuracy_diff = accuracy_global - obs_accuracy_sg
 
     random_subgroups = find_matching_subgroups(validation_target_class, 
                                                class_balance, n_subgroups, seed=pattern_idx)
 
     random_diffs = []
     for sg in random_subgroups:
-        auc_sg = roc_auc_score_binary(validation_target_class[sg, 0], validation_target_class[sg, 1])
-        diff = auc_global - auc_sg
+        accuracy_sg = accuracy_score_binary(validation_target_class[sg, 0], validation_target_class[sg, 1])
+        diff = accuracy_global - accuracy_sg
         random_diffs.append(diff)
 
     random_diffs = np.array(random_diffs)
-    p_value = (np.sum(random_diffs >= obs_auc_diff) + 1) / (len(random_diffs) + 1)
+    p_value = (np.sum(random_diffs >= obs_accuracy_diff) + 1) / (len(random_diffs) + 1)
 
-    print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern AUC={obs_auc_sg:.4f}, p-value={p_value:.6f}")
+    print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern Accuracy={obs_accuracy_sg:.4f}, p-value={p_value:.6f}")
 
     train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq)]
     class_balance_train = calculate_class_balance(train_target_class, train_extend)
-    return p_value, obs_auc_diff, class_balance_train
+    return p_value, obs_accuracy_diff, class_balance_train
 
 def filter_by_significance(
     candidate_patterns,
@@ -126,7 +126,7 @@ def filter_by_significance(
         info.append({
             'pattern': decode_sequence(pattern[1], encoding_to_items),
             'quality': pattern[0],
-            'pattern_auc': pattern[3],
+            'pattern_accuracy': pattern[3],
             'support': len(pattern[2]),
             'class_balance': dict(class_balance),
             'p_value': raw_p,
@@ -134,10 +134,10 @@ def filter_by_significance(
             'is_sig': is_sig,
         })
         if is_sig:
-            print(f"  Pattern {idx}: AUC diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
+            print(f"  Pattern {idx}: Accuracy diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
             significant.append(pattern)
         else:
-            print(f"  Pattern {idx}: AUC diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
+            print(f"  Pattern {idx}: Accuracy diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
 
     elapsed = time.time() - start_time
     print(f"\n Found {len(significant)} significant patterns out of {valid_count} tested.")

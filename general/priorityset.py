@@ -40,14 +40,14 @@ def decode_results(results_list, items_to_encoding):
     decoded_results = []
     
     for idx, result in enumerate(results_list):
-        quality, sequence, extend, rocauc = result
+        quality, sequence, extend, accuracy = result
         pattern_display = ''
         decoded_seq = decode_sequence(sequence, encoding_to_items)
         for itemset in decoded_seq:
             pattern_display += repr(set(itemset))
         
-        decoded_results.append({ 'pattern': decoded_seq, 'quality': quality, 'support': len(extend), 'pattern_auc': rocauc })
-        print(f"  Pattern {idx}: Quality={quality:.4f}, ROC-AUC={rocauc:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+        decoded_results.append({ 'pattern': decoded_seq, 'quality': quality, 'support': len(extend), 'pattern_accuracy': accuracy })
+        print(f"  Pattern {idx}: Quality={quality:.4f}, Accuracy={accuracy:.4f}, Support={len(extend)}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
     return decoded_results
 
@@ -56,8 +56,8 @@ def show_results(results, pattern_max_len, extra):
     results_list.sort(key=lambda x: x[0], reverse=True)
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
 
-    acceptable_auc_difference = Model.get_rocauc() - 0.05
-    results_list = [result for result in results_list if result[3] <= acceptable_auc_difference]
+    acceptable_accuracy_difference = Model.get_accuracy() - 0.05
+    results_list = [result for result in results_list if result[3] <= acceptable_accuracy_difference]
 
     print(f"================\nALL PATTERNS\n================")
 
@@ -74,10 +74,10 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
 
-    acceptable_auc_difference = Model.get_rocauc() - 0.05
-    results_list = [result for result in results_list if result[3] <= acceptable_auc_difference]
+    acceptable_accuracy_difference = Model.get_accuracy() - 0.05
+    results_list = [result for result in results_list if result[3] <= acceptable_accuracy_difference]
 
-    global_auc = extra['global_auc']
+    global_accuracy = extra['global_accuracy']
     validation_data_path = extra['validation_data_path']
     validation_target_path = extra['validation_target_path']
     train_data_path = extra['train_data_path']
@@ -97,7 +97,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     save_all_patterns(
         d_results,
-        global_auc,
+        Model.get_accuracy(),
         len(data),
         extra['dataset_name'],
         timestamp,
@@ -108,6 +108,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     print(f"================\nFILTERING BY SIMILARITY\n================")
     non_redundant_patterns = []
     for _, result in enumerate(results_list):
+        print(f"Processing pattern {_} of {len(results_list)}")
         similar = False
         max_jaccard = 0.0
         
@@ -123,9 +124,12 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         
         if not similar:
             non_redundant_patterns.append(result)
+        
+        if len(non_redundant_patterns) == 100:
+            break
     
     d_results = decode_results(non_redundant_patterns, items_to_encoding)
-    save_patterns_after_similarity_filter(d_results, global_auc, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
+    save_patterns_after_similarity_filter(d_results, global_accuracy, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
 
     print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
     significant_patterns, significance_info = filter_by_significance(
@@ -142,7 +146,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
     decode_results(significant_patterns, items_to_encoding)
 
-    save_patterns_after_stats_validation(significance_info, global_auc, extra['dataset_name'], timestamp, extra['iteration_count'])
+    save_patterns_after_stats_validation(significance_info, global_accuracy, extra['dataset_name'], timestamp, extra['iteration_count'])
 
     return significant_patterns[:k]
 
@@ -188,9 +192,9 @@ class PrioritySet(object):
         self.set = set()
         self.theta = theta
 
-    def add(self, sequence, wracc, extend, rocauc):
+    def add(self, sequence, wracc, extend, accuracy):
         if sequence not in self.set:
-            heapq.heappush(self.heap, (wracc, sequence, extend, rocauc))
+            heapq.heappush(self.heap, (wracc, sequence, extend, accuracy))
             self.set.add(sequence)
 
     def add_preserve_memory(self, sequence, wracc, data):

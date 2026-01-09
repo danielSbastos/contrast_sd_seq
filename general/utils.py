@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 import random
 
@@ -250,7 +251,7 @@ def print_results(results):
 
         sum_result += result[0]
 
-        print('Quality: {}, Extent: {}, ROCAUC: {}, Pattern: {}'.format(result[0], result[2], result[3], pattern_display))
+        print('Quality: {}, Extent: {}, Accuracy: {}, Pattern: {}'.format(result[0], result[2], result[3], pattern_display))
 
     print('Average score :{}'.format(sum_result / len(results)))
 
@@ -315,19 +316,26 @@ def roc_auc_score_binary(y_trues, confidences):
     else:
         return roc_auc_score(y_trues, confidences)
 
+def accuracy_score_binary(y_trues, confidences):
+    if len(set(y_trues)) < 2:
+        return np.nan
+    
+    y_trues_array = np.array(y_trues)
+    confidences_array = np.array(confidences)
+    
+    unique_labels = sorted(set(y_trues))
+    if len(unique_labels) != 2:
+        return np.nan
+    
+    positive_class = unique_labels[1]
+    negative_class = unique_labels[0]
+    
+    predictions = np.where(confidences_array > 0.5, positive_class, negative_class)
+    accuracy = np.mean(predictions == y_trues_array)
+    
+    return accuracy
+
 def get_quality(support, data, extend, target_class=None):
-    """
-    Calculate quality (WRAcc) for a pattern based on its support and ROC-AUC.
-    
-    Args:
-        support: Number of sequences in extend
-        data: Data sequences
-        extend: List of indices into target_class
-        target_class: Optional target class array. If None, uses Model.get_target_class()
-    
-    Returns:
-        Tuple of (quality, rocauc)
-    """
     if target_class is None:
         target_class = Model.get_target_class()
     extend_target_class = target_class[extend]
@@ -335,12 +343,12 @@ def get_quality(support, data, extend, target_class=None):
     y_trues = [item[0] for item in extend_target_class]
     confidences = [item[1] for item in extend_target_class]
 
-    rocauc = roc_auc_score_binary(y_trues, confidences)
+    accuracy = accuracy_score_binary(y_trues, confidences)
 
-    if np.isnan(rocauc) or (rocauc > Model.get_rocauc()):
+    if np.isnan(accuracy) or (accuracy > Model.get_accuracy()):
         return -1, -1
 
-    x = Model.get_rocauc() - rocauc
+    x = Model.get_accuracy() - accuracy
     s_rel = support/(len(data))
     s = support
 
@@ -348,7 +356,7 @@ def get_quality(support, data, extend, target_class=None):
 
     f = 100 * (x ** 2) * s_rel**0.5
 
-    return f, rocauc
+    return f, accuracy
 
 
 def print_rocket_league(patterns):
@@ -385,8 +393,8 @@ def compute_quality(subsequence, data=None):
             support += 1
             extend.append(i)
 
-    quality, rocauc = get_quality(support, data, extend)
-    return quality, rocauc, extend
+    quality, accuracy = get_quality(support, data, extend)
+    return quality, accuracy, extend
 
 
 @functools.lru_cache(maxsize=1000)

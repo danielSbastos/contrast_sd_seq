@@ -3,7 +3,7 @@ import os
 
 def save_all_patterns(
     results,
-    global_auc,
+    global_accuracy,
     dataset_size,
     dataset_name,
     timestamp,
@@ -15,7 +15,7 @@ def save_all_patterns(
     file_name = f"{base_path}/all_patterns.csv"
 
     df = pd.DataFrame(results)
-    df['global_auc'] = global_auc
+    df['global_accuracy'] = global_accuracy
     df['dataset_size'] = dataset_size
 
     if synth_data:
@@ -26,7 +26,7 @@ def save_all_patterns(
 
 def save_patterns_after_similarity_filter(
     results,
-    global_auc,
+    global_accuracy,
     theta,
     dataset_name,
     timestamp,
@@ -37,13 +37,13 @@ def save_patterns_after_similarity_filter(
     file_name = f"{base_path}/after_similarity_patterns.csv"
 
     df = pd.DataFrame(results)
-    df['global_auc'] = global_auc
+    df['global_accuracy'] = global_accuracy
     df['theta'] = theta
     df.to_csv(file_name, index=False)
 
 def save_patterns_after_stats_validation(
     results,
-    global_auc,
+    global_accuracy,
     dataset_name,
     timestamp,
     iteration_count,
@@ -53,6 +53,6 @@ def save_patterns_after_stats_validation(
     file_name = f"{base_path}/after_stats_patterns.csv"
 
     df = pd.DataFrame(results)
-    df['global_auc'] = global_auc
+    df['global_accuracy'] = global_accuracy
     df.to_csv(file_name, index=False)
 
