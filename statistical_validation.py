@@ -6,6 +6,7 @@ from general.utils import accuracy_score_binary, is_subsequence, decode_sequence
 from general.reader import read_data_kosarak
 from general.utils import encode_data, filter_empty_sequences
 from seqscout.global_var import Model
+import general.conf as conf
 import random
 import time
 
@@ -20,7 +21,7 @@ def find_matching_subgroups(target_class, class_balance, n_subgroups=1000, seed=
         np.random.seed(seed)
 
     y_trues = target_class[:, 0]
-    
+
     indices_by_class = {
         label: np.where(y_trues == label)[0].tolist()
         for label in np.unique(y_trues)
@@ -39,11 +40,11 @@ def find_matching_subgroups(target_class, class_balance, n_subgroups=1000, seed=
     return subgroups
 
 
-def calculate_p_value(result, validation_target_class, validation_data, n_subgroups=1000, pattern_idx=None, 
+def calculate_p_value(result, validation_target_class, validation_data, n_subgroups=1000, pattern_idx=None,
                      train_target_class=None, train_data=None):
     intent = result[1]
 
-    validation_extend = [i for i, seq in enumerate(validation_data) if is_subsequence(intent, seq)]
+    validation_extend = [i for i, seq in enumerate(validation_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
     support = len(validation_extend)
     class_balance = calculate_class_balance(validation_target_class, validation_extend)
 
@@ -51,7 +52,7 @@ def calculate_p_value(result, validation_target_class, validation_data, n_subgro
     accuracy_global = accuracy_score_binary(validation_target_class[:, 0], validation_target_class[:, 1])
     obs_accuracy_diff = accuracy_global - obs_accuracy_sg
 
-    random_subgroups = find_matching_subgroups(validation_target_class, 
+    random_subgroups = find_matching_subgroups(validation_target_class,
                                                class_balance, n_subgroups, seed=pattern_idx)
 
     random_diffs = []
@@ -65,7 +66,7 @@ def calculate_p_value(result, validation_target_class, validation_data, n_subgro
 
     print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern Accuracy={obs_accuracy_sg:.4f}, p-value={p_value:.6f}")
 
-    train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq)]
+    train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
     class_balance_train = calculate_class_balance(train_target_class, train_extend)
     return p_value, obs_accuracy_diff, class_balance_train
 

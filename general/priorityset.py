@@ -18,9 +18,9 @@ def jaccard_measure_misere(sequence1, sequence2, data):
         seq1 = False
         seq2 = False
 
-        if is_subsequence(sequence1, sequence):
+        if is_subsequence(sequence1, sequence, max_gap=conf.MAX_GAP):
             seq1 = True
-        if is_subsequence(sequence2, sequence):
+        if is_subsequence(sequence2, sequence, max_gap=conf.MAX_GAP):
             seq2 = True
 
         if seq1 or seq2:
@@ -38,14 +38,14 @@ def jaccard_measure_misere(sequence1, sequence2, data):
 def decode_results(results_list, items_to_encoding):
     encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
     decoded_results = []
-    
+
     for idx, result in enumerate(results_list):
         quality, sequence, extend, accuracy = result
         pattern_display = ''
         decoded_seq = decode_sequence(sequence, encoding_to_items)
         for itemset in decoded_seq:
             pattern_display += repr(set(itemset))
-        
+
         decoded_results.append({ 'pattern': decoded_seq, 'quality': quality, 'support': len(extend), 'pattern_accuracy': accuracy })
         print(f"  Pattern {idx}: Quality={quality:.4f}, Accuracy={accuracy:.4f}, Support={len(extend)}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
@@ -55,9 +55,6 @@ def show_results(results, pattern_max_len, extra):
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
-
-    acceptable_accuracy_difference = Model.get_accuracy() - 0.05
-    results_list = [result for result in results_list if result[3] <= acceptable_accuracy_difference]
 
     print(f"================\nALL PATTERNS\n================")
 
@@ -71,11 +68,9 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     results_list = list(results)
     results_list.sort(key=lambda x: x[0], reverse=True)
+    results_list = results_list[:1000]
 
     results_list = [result for result in results_list if len(result[1]) <= pattern_max_len]
-
-    acceptable_accuracy_difference = Model.get_accuracy() - 0.05
-    results_list = [result for result in results_list if result[3] <= acceptable_accuracy_difference]
 
     global_accuracy = extra['global_accuracy']
     validation_data_path = extra['validation_data_path']
@@ -95,6 +90,8 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
             'noise': extra['noise']
         }
 
+    max_gap = extra.get('max_gap', None)
+
     save_all_patterns(
         d_results,
         Model.get_accuracy(),
@@ -103,6 +100,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         timestamp,
         extra['iteration_count'],
         synth_data=synth_data,
+        max_gap=max_gap,
     )
 
     print(f"================\nFILTERING BY SIMILARITY\n================")
@@ -111,7 +109,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         print(f"Processing pattern {_} of {len(results_list)}")
         similar = False
         max_jaccard = 0.0
-        
+
         for _, filtered_element in enumerate(non_redundant_patterns):
             jaccard_sim = jaccard_measure_misere(result[1], filtered_element[1], data)
 
@@ -121,13 +119,13 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
             if jaccard_sim > theta:
                 similar = True
                 break
-        
+
         if not similar:
             non_redundant_patterns.append(result)
-        
+
         if len(non_redundant_patterns) == 100:
             break
-    
+
     d_results = decode_results(non_redundant_patterns, items_to_encoding)
     save_patterns_after_similarity_filter(d_results, global_accuracy, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
 
@@ -219,12 +217,12 @@ class PrioritySet(object):
     def get_top_k(self, k):
         data = heapq.nlargest(k, self.heap)
         return data
-    
+
     def show_all(self, extra, pattern_max_len=float('inf')):
         show_results(self.heap, pattern_max_len, extra)
 
     def get_top_k_non_redundant(self, data, k, pattern_max_len = float('inf'), extra = {}):
-        filtered_result = filter_results(self.heap, data, self.theta, k, 
+        filtered_result = filter_results(self.heap, data, self.theta, k,
                                         pattern_max_len=pattern_max_len, extra=extra)
         return heapq.nlargest(k, filtered_result)
 

@@ -9,6 +9,7 @@ def save_all_patterns(
     timestamp,
     iteration_count,
     synth_data = {},
+    max_gap=None,
 ):
     base_path = f"./experiments/results/{dataset_name}/{iteration_count}/{timestamp}"
     os.makedirs(base_path, exist_ok=True)
@@ -21,7 +22,12 @@ def save_all_patterns(
     if synth_data:
         df['noise'] = synth_data['noise']
         df['avg_sequence_lenght'] = synth_data['avg_sequence_lenght']
-    
+
+    if max_gap is None:
+        df['max_gap'] = -1
+    else:
+        df['max_gap'] = max_gap
+
     df.to_csv(file_name, index=False)
 
 def save_patterns_after_similarity_filter(

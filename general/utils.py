@@ -107,10 +107,62 @@ def create_i_extension(sequence, item, index):
     return tuple(new_sequence)
 
 
-@functools.lru_cache(maxsize=50000)
-def is_subsequence(a, b):
-    """ check if sequence a is a subsequence of b
-    """
+def is_subsequence_contiguous(a, b):
+    if len(a) > len(b):
+        return False
+
+    if len(a) == 0:
+        return True
+
+    for start_idx in range(len(b) - len(a) + 1):
+        match = True
+        for i in range(len(a)):
+            if not a[i].issubset(b[start_idx + i]):
+                match = False
+                break
+        if match:
+            return True
+
+    return False
+
+
+def is_subsequence_windowed(a, b, max_gap=None):
+    if len(a) > len(b):
+        return False
+
+    if len(a) == 0:
+        return True
+
+    prev_positions = [set()]
+
+    for j in range(len(b)):
+        if a[0].issubset(b[j]):
+            prev_positions[0].add(j)
+
+    if not prev_positions[0]:
+        return False
+
+    for i in range(1, len(a)):
+        prev_positions.append(set())
+
+        for prev_j in prev_positions[i-1]:
+            for j in range(prev_j + 1, min(prev_j + max_gap + 2, len(b))):
+                if a[i].issubset(b[j]):
+                    prev_positions[i].add(j)
+
+        if not prev_positions[i]:
+            return False
+
+    return True
+
+
+def is_subsequence_non_contiguous(a, b):
+    if len(a) > len(b):
+        return False
+
+    if len(a) == 0:
+        return True
+
     i_a, i_b = 0, 0
 
     while i_a < len(a) and i_b < len(b):
@@ -121,29 +173,13 @@ def is_subsequence(a, b):
     return i_a == len(a)
 
 
-def subsequence_indices(a, b):
-    """ Return itemset indices of b that itemset of a are included in
-        Precondition: a is a subset of b
-    """
-    index_b_mem = 0
-    indices_b = []
-    for index_a, itemset_a in enumerate(a):
-        for index_b in range(index_b_mem, len(b)):
-            if index_b == len(b) - 1:
-                # we mark as finished
-                index_b_mem = len(b)
-
-            itemset_b = b[index_b]
-
-            if itemset_a.issubset(itemset_b):
-                indices_b.append(index_b)
-                index_b_mem = index_b + 1
-                break
-
-        if index_b_mem == len(b):
-            return indices_b
-
-    return indices_b
+def is_subsequence(a, b, max_gap=None):
+    if max_gap == 0:
+        return is_subsequence_contiguous(a, b)
+    elif max_gap == -1:
+        return is_subsequence_non_contiguous(a, b)
+    else:
+        return is_subsequence_windowed(a, b, max_gap)
 
 
 def encode_data(data, item_to_encoding):
@@ -157,32 +193,26 @@ def encode_data(data, item_to_encoding):
     missing_items_count = 0
 
     for line in data:
-        # Process itemsets starting from index 1 (skip class label at index 0)
         itemsets_to_remove = []
         for i in range(1, len(line)):
             itemset = line[i]
             if len(itemset) == 0:
-                # Mark empty itemsets for removal
                 itemsets_to_remove.append(i)
                 continue
-            
+
             encoded_itemset = set()
             for item in itemset:
                 if item in item_to_encoding:
                     encoded_itemset.add(item_to_encoding[item])
                 else:
-                    # Item not in vocabulary - skip it but track for warning
                     missing_items.add(item)
                     missing_items_count += 1
-            
-            # Only update if we have encoded items
+
             if len(encoded_itemset) > 0:
                 line[i] = encoded_itemset
             else:
-                # All items were missing, mark for removal
                 itemsets_to_remove.append(i)
-        
-        # Remove empty itemsets in reverse order to maintain indices
+
         for i in sorted(itemsets_to_remove, reverse=True):
             if i < len(line):
                 del line[i]
@@ -319,45 +349,49 @@ def roc_auc_score_binary(y_trues, confidences):
 def accuracy_score_binary(y_trues, confidences):
     if len(set(y_trues)) < 2:
         return np.nan
-    
+
     y_trues_array = np.array(y_trues)
     confidences_array = np.array(confidences)
-    
+
     unique_labels = sorted(set(y_trues))
     if len(unique_labels) != 2:
         return np.nan
-    
+
     positive_class = unique_labels[1]
     negative_class = unique_labels[0]
-    
+
     predictions = np.where(confidences_array > 0.5, positive_class, negative_class)
     accuracy = np.mean(predictions == y_trues_array)
-    
+
     return accuracy
 
 def get_quality(support, data, extend, target_class=None):
     if target_class is None:
         target_class = Model.get_target_class()
-    extend_target_class = target_class[extend]
 
-    y_trues = [item[0] for item in extend_target_class]
-    confidences = [item[1] for item in extend_target_class]
+    hard_errors = Model.get_hard_errors()
+    soft_errors = Model.get_soft_errors()
 
-    accuracy = accuracy_score_binary(y_trues, confidences)
+    if isinstance(extend, list):
+        extend_arr = np.array(extend, dtype=int)
+    else:
+        extend_arr = np.asarray(extend, dtype=int)
 
-    if np.isnan(accuracy) or (accuracy > Model.get_accuracy()):
-        return -1, -1
+    subgroup_hard_error = hard_errors[extend_arr].mean()
+    subgroup_soft_error = soft_errors[extend_arr].mean()
 
-    x = Model.get_accuracy() - accuracy
-    s_rel = support/(len(data))
-    s = support
+    global_soft_error = Model.get_global_mean_error()
+    global_hard_error = Model.get_global_hard_error()
 
-    if s == 1 or (x < 0.01): return (-1, -1)
+    soft_deviation = subgroup_soft_error - global_soft_error
+    hard_deviation = subgroup_hard_error - global_hard_error
 
-    f = 100 * (x ** 2) * s_rel**0.5
+    if soft_deviation <= 0 or hard_deviation <= 0:
+        return 0.0, subgroup_hard_error
 
-    return f, accuracy
+    quality = (soft_deviation ** 2) * (support / len(data)) ** 0.75
 
+    return quality, subgroup_hard_error
 
 def print_rocket_league(patterns):
     '''
@@ -380,16 +414,17 @@ def print_rocket_league(patterns):
 
 
 @functools.lru_cache(maxsize=10000)
-def compute_quality(subsequence, data=None):
-    if data is None:
-        data = Model.get_data()
-        seqscout.global_var.increase_it_number()
+def compute_quality(subsequence):
+    data = Model.get_data()
+    seqscout.global_var.increase_it_number()
+
+    max_gap = conf.MAX_GAP
 
     support = 0
     extend = []
 
     for i, sequence in enumerate(data):
-        if is_subsequence(subsequence, sequence):
+        if is_subsequence(subsequence, sequence, max_gap=max_gap):
             support += 1
             extend.append(i)
 
@@ -402,7 +437,8 @@ def compute_sequence_expand(intent, extend):
     data = Model.get_data()
     if intent is None:
         return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend])
-    return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend and not is_subsequence(intent, seq)])
+    max_gap = conf.MAX_GAP
+    return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend and not is_subsequence(intent, seq, max_gap=max_gap)])
 
 import seqscout.global_var
 
@@ -414,7 +450,6 @@ def backtrack_LCS(C, seq1, seq2, i, j, lcs):
     inter = seq1[i - 1].intersection(seq2[j - 1])
 
     if inter != set():
-        # these two cases check what path the DP took
         if C[i - 1][j] == C[i][j]:
             return backtrack_LCS(C, seq1, seq2, i - 1, j, lcs)
         if C[i][j - 1] == C[i][j]:
@@ -429,15 +464,100 @@ def backtrack_LCS(C, seq1, seq2, i, j, lcs):
         return backtrack_LCS(C, seq1, seq2, i - 1, j, lcs)
 
 
-def find_LCS(seq1, seq2, all=False):
-    """
-    find the longest common subsequence. We here consider sequences of itemsets
-    Cost a lot if all = True
-    :param seq1:
-    :param seq2:
-    :return: the longest common sequence
+def find_LCS_contiguous(seq1, seq2):
+    m, n = len(seq1), len(seq2)
+    if m == 0 or n == 0:
+        return []
 
-    """
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    max_len = 0
+    end_i = 0
+    end_j = 0
+
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            inter = seq1[i - 1].intersection(seq2[j - 1])
+            if inter:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+                if dp[i][j] > max_len:
+                    max_len = dp[i][j]
+                    end_i = i
+                    end_j = j
+            else:
+                dp[i][j] = 0
+
+    if max_len == 0:
+        return []
+
+    lcs = []
+    i, j = end_i, end_j
+    while i > 0 and j > 0 and dp[i][j] > 0:
+        inter = seq1[i - 1].intersection(seq2[j - 1])
+        if not inter:
+            break
+        lcs.append(inter)
+        i -= 1
+        j -= 1
+
+    lcs.reverse()
+    return lcs
+
+
+def find_LCS_windowed(seq1, seq2, max_gap):
+    m, n = len(seq1), len(seq2)
+    if m == 0 or n == 0:
+        return []
+
+    dp = [[None] * (n + 1) for _ in range(m + 1)]
+
+    best_len = 0
+    best_end = (0, 0)
+
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            inter = seq1[i - 1].intersection(seq2[j - 1])
+            if not inter:
+                continue
+
+            best_prev = (1, 0, 0)
+
+            for pi in range(max(0, i - max_gap - 1), i):
+                for pj in range(max(0, j - max_gap - 1), j):
+                    if pi == i and pj == j:
+                        continue
+                    if dp[pi][pj] is not None:
+                        prev_len, _, _ = dp[pi][pj]
+                        gap1 = (i - 1) - pi
+                        gap2 = (j - 1) - pj
+                        if gap1 <= max_gap and gap2 <= max_gap:
+                            if prev_len + 1 > best_prev[0]:
+                                best_prev = (prev_len + 1, pi, pj)
+
+            dp[i][j] = best_prev
+
+            if best_prev[0] > best_len:
+                best_len = best_prev[0]
+                best_end = (i, j)
+
+    if best_len == 0:
+        return []
+
+    lcs = []
+    i, j = best_end
+    while i > 0 and j > 0 and dp[i][j] is not None:
+        inter = seq1[i - 1].intersection(seq2[j - 1])
+        if inter:
+            lcs.append(inter)
+        _, pi, pj = dp[i][j]
+        if pi == 0 and pj == 0:
+            break
+        i, j = pi, pj
+
+    lcs.reverse()
+    return lcs
+
+
+def find_LCS_non_contiguous(seq1, seq2, all=False):
     C = [[0 for j in range(len(seq2) + 1)] for i in range(len(seq1) + 1)]
 
     for i in range(1, len(seq1) + 1):
@@ -448,7 +568,6 @@ def find_LCS(seq1, seq2, all=False):
                            C[i - 1][j],
                            C[i][j - 1]])
 
-    # now we need to backtrack the structure to get the pattern
     if all:
         all_lcs = backtrack_all_LCS(C, seq1, seq2, len(seq1), len(seq2))
         return {i for i in all_lcs}
@@ -456,6 +575,18 @@ def find_LCS(seq1, seq2, all=False):
     lcs = []
     backtrack_LCS(C, seq1, seq2, len(seq1), len(seq2), lcs)
     return lcs
+
+
+def find_LCS(seq1, seq2, max_gap=None):
+    if max_gap is None:
+        max_gap = conf.MAX_GAP
+
+    if max_gap == 0:
+        return find_LCS_contiguous(seq1, seq2)
+    elif max_gap == -1:
+        return find_LCS_non_contiguous(seq1, seq2)
+    else:
+        return find_LCS_windowed(seq1, seq2, max_gap)
 
 
 def backtrack_all_LCS(C, seq1, seq2, i, j):
@@ -528,7 +659,6 @@ def calculate_log_losses(target_class):
 
 def filter_empty_sequences(data):
     return tuple([sequence_mutable_to_immutable(i[1:]) for i in data])
-    #return tuple([sequence_mutable_to_immutable(i[1:]) for i in data if len(i[1:]) > 0])
 
 @functools.lru_cache(maxsize=5000)
 def compute_cumulative_probs(items_tuple):

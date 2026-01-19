@@ -34,9 +34,9 @@ def best_child(node):
     max_score = -float("inf")
 
     for child in node.children:
-        current_ucb = child.get_normalized_quality() / child.number_visits + 0.5 * math.sqrt(
+        current_ucb = child.get_normalized_quality() / child.number_visits + 15 * math.sqrt(
             2 * math.log(node.number_visits) / child.number_visits)
-        
+
         if current_ucb > max_score and not child.is_dead_end():
             max_score = current_ucb
             best_node = child
@@ -64,92 +64,41 @@ computed_rollouts = {}
 
 def roll_out(node, item_log_losses=None):
     """
-    Generalize a sequence by deleting items (weighted by log loss or random)
-    :param node: the node corresponding to the sequence to generalize
-    :param data:
-    :param target_class:
-    :return: the new sequence and its quality
+    Fast rollout: Remove contiguous chunks from start or end only.
+    No scoring, no complex logic - just simple boundary removal.
     """
     sequence = copy.deepcopy(node.intent)
     sequence = sequence_immutable_to_mutable(sequence)
 
-    if not sequence: return sequence, 1
-
-    seq_items_nb = len([i for j_set in sequence for i in j_set])
-    z = random.randint(0, int((seq_items_nb - 1)*0.5) if seq_items_nb else seq_items_nb)
-
-    item_candidates = []
-    for itemset_i, itemset in enumerate(sequence):
-        for item in itemset:
-            log_loss = item_log_losses[item]
-            removal_prob = 1.0 / (1.0 + log_loss)
-            item_candidates.append((itemset_i, item, removal_prob))
-
-    probs = [prob for _, _, prob in item_candidates]
-
-    if probs == []:
-        print(sequence)
+    if not sequence or len(sequence) <= 1:
         return sequence, 1
-    
-    min_prob = min(probs)
-    max_prob = max(probs)
-    prob_range = max_prob - min_prob
 
-    if prob_range > 0:
-        n_probs = [(p - min_prob) / prob_range for p in probs]
+    # How many to remove (20-50% of length)
+    num_to_remove = random.randint(
+        max(1, int(len(sequence) * 0.2)),
+        max(1, int(len(sequence) * 0.5))
+    )
+
+    choice = random.randint(0, 2)
+
+    if choice == 0:
+        sequence = sequence[num_to_remove:]
+    elif choice == 1:
+        sequence = sequence[:-num_to_remove]
     else:
-        n_probs = probs
+        remove_start = num_to_remove // 2
+        remove_end = num_to_remove - remove_start
+        sequence = sequence[remove_start:-remove_end if remove_end > 0 else None]
 
-    n_item_candidates = []
-    for (itemset_idx, item, _), n_prob in zip(item_candidates, n_probs):
-        n_item_candidates.append((itemset_idx, item, n_prob))
-
-    items_to_remove = []
-    available_candidates = n_item_candidates.copy()
-
-    for _ in range(min(z, len(available_candidates))):
-        probs = [prob for _, _, prob in available_candidates]
-        chosen_idx = get_idx_from_cumulative_prop(probs) or 0
-
-        itemset_i, item, _ = available_candidates.pop(chosen_idx)
-        items_to_remove.append((itemset_i, item))
-
-    items_by_itemset = {}
-    for itemset_i, item in items_to_remove:
-        if itemset_i not in items_by_itemset:
-            items_by_itemset[itemset_i] = []
-        items_by_itemset[itemset_i].append(item)
-
-    itemsets_to_remove = []
-    for itemset_i, items in items_by_itemset.items():
-        for item in items:
-            sequence[itemset_i].discard(item)
-
-        if len(sequence[itemset_i]) == 0:
-            itemsets_to_remove.append(itemset_i)
-
-    # remove empty itemsets
-    for itemset_i in sorted(itemsets_to_remove, reverse=True):
-        sequence.pop(itemset_i)
+    if not sequence:
+        return [], 0
 
     immutable_sequence = tuple(sequence_mutable_to_immutable(sequence))
-    if computed_rollouts.get(immutable_sequence, 0) > 5 and z > 0:
-        return roll_out(node, item_log_losses)
-    else:
-        computed_rollouts[immutable_sequence] = computed_rollouts.get(immutable_sequence, 0) + 1
-
     reward, _, _ = compute_quality(immutable_sequence)
+
     return sequence, reward
 
-
 def update(node, reward):
-    """
-    Backtrack: update the node and recursively update all parent nodes until the extent root
-    :param node: the node we want to update
-    :param reward: the reward we got
-    :return: None
-    """
-
     update_nodes = {node}
     parents_seen = set()
 
@@ -163,7 +112,7 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3):
+def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3, max_gap=conf.MAX_GAP):
     path = f"data/{filename}_train.dat"
     target_path=f"data/{filename}_train.csv"
 
@@ -182,19 +131,52 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     Model.set_labels(list(target_file['y_true'].unique()))
     positive_class_scores = target_file['confidence']
     y_true = target_file['y_true'].tolist()
-    
+
     unique_labels = sorted(target_file['y_true'].unique())
     positive_class = unique_labels[1] if len(unique_labels) == 2 else unique_labels[-1]
     negative_class = unique_labels[0]
-    
+
     predictions = (positive_class_scores > 0.5).map(lambda x: positive_class if x else negative_class).tolist()
     accuracy = accuracy_score(y_true, predictions)
 
     Model.set_accuracy(accuracy)
+    Model.set_positive_class(positive_class)
+    Model.set_target_class(target_class)
+
+    prediction_errors = []
+    for y, confidence in target_class:
+        if y == positive_class:
+            p = confidence
+        else:
+            p = 1.0 - confidence
+        prediction_error = abs(1.0 - p)
+        prediction_errors.append(prediction_error)
+
+    prediction_errors = np.array(prediction_errors)
+    global_mean_error = np.mean(prediction_errors)
+    global_std_error = np.std(prediction_errors)
+
+    Model.set_global_mean_error(global_mean_error)
+    Model.set_global_std_error(global_std_error)
+    Model.set_global_errors(prediction_errors)
+    y_trues = target_class[:, 0]
+    confidences = target_class[:, 1]
+    predictions_arr = (confidences > 0.5).astype(int)
+    predictions_mapped = np.where(predictions_arr == 1, positive_class, negative_class)
+    hard_errors = (y_trues != predictions_mapped).astype(float)
+    soft_errors = prediction_errors
+    global_hard_error = hard_errors.mean()
+    Model.set_hard_errors(hard_errors)
+    Model.set_soft_errors(soft_errors)
+    Model.set_global_hard_error(global_hard_error)
+    print(f"\n=== Precomputed Metrics ===")
+    print(f"Global accuracy: {accuracy:.4f}")
+    print(f"Global hard error rate: {global_hard_error:.4f}")
+    print(f"Global soft mean error: {global_mean_error:.4f}")
 
     validation_data_path = None
     validation_target_path = None
-    
+
     base_path, ext = os.path.splitext(path)
     validation_data_path = base_path + "_test" + ext
 
@@ -204,7 +186,7 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     if not os.path.isfile(validation_target_path):
         validation_target_path = target_path
         validation_data_path = path
-    
+
     noise = None
     seq_lenght = None
     expected_patterns = []
@@ -224,7 +206,8 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
         'avg_sequence_lenght': None,
         'noise': noise,
         'dataset_name': filename,
-        'avg_sequence_lenght': seq_lenght
+        'avg_sequence_lenght': seq_lenght,
+        'max_gap': max_gap or -1
     }
 
     log_losses_file = f"data/log_losses/log_losses_{filename}.txt"
@@ -238,8 +221,7 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     Model.set_log_losses(log_losses)
 
-    print(f"Model Accuracy: {accuracy}")
-    results = launch_mcts(data, target_class, log_losses, top_k=top_k, time_budget=time_budget, theta=theta, 
+    results = launch_mcts(data, target_class, log_losses, top_k=top_k, time_budget=time_budget, theta=theta,
                          iterations_limit=iterations_limit, expected_patterns=expected_patterns,
                          extra=extra, max_length=max_length)
 
@@ -256,7 +238,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
     time_budget = datetime.timedelta(seconds=time_budget)
 
     data = filter_empty_sequences(data)
-    
+
     Model.set_target_class(target_class)
     Model.set_data(data)
 
@@ -268,13 +250,13 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
     node_hashmap = {}
     root_node = Node(None, None, node_hashmap)
     node_hashmap[('.')] = root_node
-    
+
     print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
 
     sorted_patterns = PrioritySet(k=top_k, theta=theta)
     iteration_count = 0
 
-    smallest_accuracy = float('inf')
+    highest_error = 0
 
     user_stopped = False
     user_show = False
@@ -282,7 +264,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
     def check_user_input():
         nonlocal user_stopped
         nonlocal user_show
-        
+
         try:
             if sys.stdin.isatty() and select_module.select([sys.stdin], [], [], 0)[0]:
                 user_input = sys.stdin.readline().strip().upper()
@@ -306,25 +288,21 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
         node_expand, _ = node_sel.expand()
 
         if node_expand.quality > 0 and node_expand.accuracy > 0 and len(node_expand.intent) and extend_cover_minsup_abs(node_expand.extend):
-            quality = node_expand.quality - math.log(len(node_expand.intent) + 1, 10)
-            quality += 1
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), quality, node_expand.extend, node_expand.accuracy)
+            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.accuracy)
 
-            if node_expand.accuracy < smallest_accuracy:
-                smallest_accuracy = node_expand.accuracy
-                print(f"Smallest Accuracy: {smallest_accuracy}. Pattern: {node_expand.intent}")
+            if node_expand.accuracy > highest_error:
+                highest_error = node_expand.accuracy
+                print(f"Highest Error: {highest_error}. Pattern: {node_expand.intent}")
 
         sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
 
         reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
         if reward_node.quality > 0 and reward_node.accuracy > 0 and len(sequence_reward) and extend_cover_minsup_abs(reward_node.extend):
-            reward -= math.log(len(sequence_reward) + 1, 10)
-            reward += 1
             sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.accuracy)
-        
-            if reward_node.accuracy < smallest_accuracy:
-                smallest_accuracy = reward_node.accuracy
-                print(f"Smallest Accuracy: {smallest_accuracy}. Pattern: {reward_node.intent}")
+
+            if reward_node.accuracy > highest_error:
+                highest_error = reward_node.accuracy
+                print(f"Highest Error: {highest_error}. Pattern: {reward_node.intent}")
 
 
         update(node_expand, reward)
@@ -335,7 +313,7 @@ def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, to
             print(iteration_count)
             if check_user_input():
                 break
-            
+
             if user_show:
                 sorted_patterns.show_all(extra, pattern_max_len=max_length)
                 user_show = False
