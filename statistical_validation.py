@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from collections import Counter
 from statsmodels.stats.multitest import multipletests
-from general.utils import accuracy_score_binary, is_subsequence, decode_sequence
+from general.utils import is_subsequence, decode_sequence, compute_sg_dg_statistic
 from general.reader import read_data_kosarak
 from general.utils import encode_data, filter_empty_sequences
 from seqscout.global_var import Model
@@ -40,35 +40,45 @@ def find_matching_subgroups(target_class, class_balance, n_subgroups=1000, seed=
     return subgroups
 
 
-def calculate_p_value(result, validation_target_class, validation_data, n_subgroups=1000, pattern_idx=None,
-                     train_target_class=None, train_data=None):
+def _validation_soft_errors(validation_target_class):
+    """Compute soft errors from validation (y_true, confidence) using same definition as main.py."""
+    positive_class = int(np.max(validation_target_class[:, 0]))
+    soft_errors = []
+    for y, confidence in validation_target_class:
+        p = confidence if y == positive_class else (1.0 - confidence)
+        soft_errors.append(abs(1.0 - p))
+    return np.array(soft_errors)
+
+
+def calculate_p_value(result, validation_target_class, validation_data, validation_soft_errors,
+                     n_subgroups=1000, pattern_idx=None, train_target_class=None, train_data=None):
     intent = result[1]
 
     validation_extend = [i for i, seq in enumerate(validation_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
     support = len(validation_extend)
     class_balance = calculate_class_balance(validation_target_class, validation_extend)
 
-    obs_accuracy_sg = accuracy_score_binary(validation_target_class[validation_extend, 0], validation_target_class[validation_extend, 1])
-    accuracy_global = accuracy_score_binary(validation_target_class[:, 0], validation_target_class[:, 1])
-    obs_accuracy_diff = accuracy_global - obs_accuracy_sg
+    # Test statistic: s_g * d_g only. Random subgroups match support & class balance (as for accuracy before).
+    obs_sg_dg = compute_sg_dg_statistic(
+        validation_extend, validation_target_class, validation_soft_errors
+    )
 
     random_subgroups = find_matching_subgroups(validation_target_class,
                                                class_balance, n_subgroups, seed=pattern_idx)
 
-    random_diffs = []
+    random_sg_dg = []
     for sg in random_subgroups:
-        accuracy_sg = accuracy_score_binary(validation_target_class[sg, 0], validation_target_class[sg, 1])
-        diff = accuracy_global - accuracy_sg
-        random_diffs.append(diff)
+        stat = compute_sg_dg_statistic(sg, validation_target_class, validation_soft_errors)
+        random_sg_dg.append(stat)
 
-    random_diffs = np.array(random_diffs)
-    p_value = (np.sum(random_diffs >= obs_accuracy_diff) + 1) / (len(random_diffs) + 1)
+    random_sg_dg = np.array(random_sg_dg)
+    p_value = (np.sum(random_sg_dg >= obs_sg_dg) + 1) / (len(random_sg_dg) + 1)
 
-    print(f"    Support={support}, Class balance={dict(class_balance)}. Pattern Accuracy={obs_accuracy_sg:.4f}, p-value={p_value:.6f}")
+    print(f"    Support={support}, Class balance={dict(class_balance)}. s_g*d_g={obs_sg_dg:.4f}, p-value={p_value:.6f}")
 
     train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
     class_balance_train = calculate_class_balance(train_target_class, train_extend)
-    return p_value, obs_accuracy_diff, class_balance_train
+    return p_value, obs_sg_dg, class_balance_train
 
 def filter_by_significance(
     candidate_patterns,
@@ -84,6 +94,7 @@ def filter_by_significance(
     validation_data_raw = read_data_kosarak(validation_data_path)
     validation_data = filter_empty_sequences(encode_data(validation_data_raw, items_to_encoding))
     validation_target_class = pd.read_csv(validation_target_path)[['y_true', 'confidence']].values
+    validation_soft_errors = _validation_soft_errors(validation_target_class)
     Model.set_validation_data(validation_data)
     Model.set_validation_target_class(validation_target_class)
 
@@ -100,7 +111,8 @@ def filter_by_significance(
             pattern,
             validation_target_class,
             validation_data,
-            n_subgroups,
+            validation_soft_errors,
+            n_subgroups=n_subgroups,
             pattern_idx=idx,
             train_target_class=train_target_class,
             train_data=train_data,
@@ -127,7 +139,7 @@ def filter_by_significance(
         info.append({
             'pattern': decode_sequence(pattern[1], encoding_to_items),
             'quality': pattern[0],
-            'pattern_accuracy': pattern[3],
+            'pattern_delta': pattern[3],
             'support': len(pattern[2]),
             'class_balance': dict(class_balance),
             'p_value': raw_p,
@@ -135,10 +147,10 @@ def filter_by_significance(
             'is_sig': is_sig,
         })
         if is_sig:
-            print(f"  Pattern {idx}: Accuracy diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
+            print(f"  Pattern {idx}: s_g*d_g={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
             significant.append(pattern)
         else:
-            print(f"  Pattern {idx}: Accuracy diff={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
+            print(f"  Pattern {idx}: s_g*d_g={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
 
     elapsed = time.time() - start_time
     print(f"\n Found {len(significant)} significant patterns out of {valid_count} tested.")
