@@ -12,4 +12,5 @@ venv/
 .venv/
 
 .DS_Store
-experiments/imgs/
+experiments/**/*
+data/**/*

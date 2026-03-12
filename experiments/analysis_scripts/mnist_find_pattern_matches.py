@@ -1,6 +1,7 @@
 import pandas as pd
 import sys
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 import re
 import math
@@ -266,8 +267,8 @@ def plot_matched_strokes(matches_data, pattern_tokens, max_plots=20, save_path='
             # Highlight only the matched tokens individually (not the gaps between them)
             # With max_gap=2, there can be gaps between matched tokens, so we highlight each separately
             if len(matched_token_indices) > 0:
-                highlight_width = 4 if num_plots > 20 else 5
-                highlight_size = 8 if num_plots > 20 else 10
+                highlight_width = 6 if num_plots > 20 else 7
+                highlight_size = 10 if num_plots > 20 else 12
                 label_added = False
 
                 # Highlight each matched token individually
@@ -343,6 +344,182 @@ def plot_matched_strokes(matches_data, pattern_tokens, max_plots=20, save_path='
     plt.suptitle(f'Found {len(matches_data)} sequences containing pattern\n'
                 f'Pattern: {" -> ".join(pattern_tokens[:5])}...',
                 fontsize=12, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Saved plot to: {save_path}")
+    plt.close()
+
+
+def calculate_soft_error(confidence, y_true):
+    """
+    Calculate soft error: |y_true_binary - confidence|
+    where y_true_binary is 1.0 if y_true == 1, 0.0 otherwise
+    """
+    y_true_binary = 1.0 if y_true == 1 else 0.0
+    return abs(y_true_binary - confidence)
+
+
+def plot_all_by_class(matches_data, pattern_tokens, save_path='pattern_matches_by_class.png'):
+    """
+    Plot all instances grouped by class (class 1 first, then class 0),
+    ordered by soft error within each class.
+    """
+    if not matches_data:
+        print("No matches found to plot")
+        return
+
+    # Calculate soft error for each match
+    for match in matches_data:
+        y_true = match.get('y_true', parse_label(match['label']))
+        confidence = float(match['confidence'])
+        match['soft_error'] = calculate_soft_error(confidence, y_true)
+
+    # Group by true class label (y_true) - all instances of the same class together,
+    # regardless of whether they're correctly classified or misclassified
+    class_1_matches = [m for m in matches_data if m.get('y_true', parse_label(m['label'])) == 1]
+    class_0_matches = [m for m in matches_data if m.get('y_true', parse_label(m['label'])) == 0]
+
+    # Sort each class by soft error
+    # Class 1: ascending (lowest soft error first)
+    class_1_matches.sort(key=lambda x: x.get('soft_error', 0))
+    # Class 0: descending (highest soft error first)
+    class_0_matches.sort(key=lambda x: x.get('soft_error', 0), reverse=True)
+
+    # Combine: class 1 first, then class 0
+    all_matches_ordered = class_1_matches + class_0_matches
+
+    num_plots = len(all_matches_ordered)
+    if num_plots == 0:
+        print("No matches found to plot")
+        return
+
+    # Determine grid layout
+    if num_plots <= 20:
+        num_cols = min(5, num_plots)
+    elif num_plots <= 50:
+        num_cols = 8
+    else:
+        num_cols = 10
+
+    num_rows = (num_plots + num_cols - 1) // num_cols
+
+    subplot_size = 3.0 if num_plots > 20 else 4.0
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(subplot_size*num_cols, subplot_size*num_rows))
+
+    if num_plots == 1:
+        axes = np.array([axes])
+    if num_rows == 1:
+        axes = axes.reshape(1, -1)
+    axes = axes.flatten()
+
+    match_colors = ['red', 'orange', 'yellow', 'lime', 'cyan', 'magenta']
+
+    for plot_idx, match_data in enumerate(all_matches_ordered):
+        ax = axes[plot_idx]
+
+        tokens = match_data['tokens']
+        movements = match_data['movements']
+        matches = match_data['matches']
+        label = match_data['label']
+        confidence = match_data['confidence']
+        y_true = match_data.get('y_true', parse_label(label))
+        y_pred = match_data.get('y_pred', 1 if confidence > 0.5 else 0)
+        is_correct = match_data.get('is_correct', (y_true == y_pred))
+        # Class-based background: class 1 = light red, class 0 = light blue
+        bg_color = '#ffebeb' if y_true == 1 else '#ebf2ff'
+        ax.set_facecolor(bg_color)
+
+        x, y = 0, 0
+        coords = [(x, y)]
+        token_to_coords = {}
+
+        coord_idx = 0
+        for token_idx, token in enumerate(tokens):
+            coord_start = coord_idx
+            dx, dy = token_to_movement(token)
+
+            if dx != 0 or dy != 0:
+                x += dx
+                y += dy
+                coord_idx += 1
+                coords.append((x, y))
+                coord_end = coord_idx
+            else:
+                coord_end = coord_idx
+
+            token_to_coords[token_idx] = (coord_start, coord_end)
+
+        linewidth_base = 2.0 if num_plots > 20 else 2.5
+        marker_size = 6 if num_plots > 20 else 8
+
+        if len(coords) > 1:
+            xs, ys = zip(*coords)
+            ax.plot(xs, ys, 'b-', linewidth=linewidth_base, alpha=1.0, label='Original stroke', zorder=1)
+
+        if matches and len(matches) > 0:
+            matched_token_indices = matches[0]
+            color = match_colors[0]
+
+            # Highlight only the matched tokens individually (not the gaps between them)
+            if len(matched_token_indices) > 0:
+                highlight_width = 6 if num_plots > 20 else 7
+                highlight_size = 10 if num_plots > 20 else 12
+                label_added = False
+
+                # Highlight each matched token individually
+                for token_idx in matched_token_indices:
+                    if token_idx in token_to_coords:
+                        coord_start_idx, coord_end_idx = token_to_coords[token_idx]
+
+                        # Make sure indices are valid
+                        coord_start_idx = max(0, min(coord_start_idx, len(coords) - 1))
+                        coord_end_idx = max(coord_start_idx, min(coord_end_idx, len(coords) - 1))
+
+                        # Include the endpoint: slice from start to end+1 to include both endpoints
+                        coord_end_idx_to_use = min(coord_end_idx + 1, len(coords))
+
+                        if coord_start_idx < len(coords) and coord_end_idx_to_use > coord_start_idx:
+                            # Get coordinates for this token's segment
+                            segment_coords = coords[coord_start_idx:coord_end_idx_to_use]
+
+                            if len(segment_coords) > 1:
+                                # Token has movement - draw a line segment
+                                mx, my = zip(*segment_coords)
+                                ax.plot(mx, my, '-', linewidth=highlight_width, alpha=0.6,
+                                       color=color,
+                                       label='Match' if not label_added else '',
+                                       zorder=2)
+                                label_added = True
+                            elif len(segment_coords) == 1:
+                                # Single point match (no movement token) - draw a marker
+                                ax.plot(segment_coords[0][0], segment_coords[0][1], 'o',
+                                       markersize=highlight_size, alpha=0.6,
+                                       color=color,
+                                       label='Match' if not label_added else '',
+                                       zorder=2)
+                                label_added = True
+
+        if coords:
+            ax.plot(coords[0][0], coords[0][1], 'go', markersize=marker_size, label='Start', zorder=10)
+            ax.plot(coords[-1][0], coords[-1][1], 'ro', markersize=marker_size, label='End', zorder=10)
+
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.tick_params(axis='both', which='both', bottom=False, top=False, left=False, right=False, labelbottom=False, labelleft=False)
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x0, x1 = min(xlim), max(xlim)
+        y0, y1 = min(ylim), max(ylim)
+        ax.add_patch(mpatches.Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor=bg_color, zorder=0))
+
+        if plot_idx == 0:
+            ax.legend(fontsize=6 if num_plots > 20 else 7, loc='upper right')
+
+    for idx in range(num_plots, len(axes)):
+        axes[idx].axis('off')
+
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     print(f"Saved plot to: {save_path}")
@@ -482,11 +659,47 @@ def find_pattern_in_dataset(csv_file, pattern_str):
     return matches_data, pattern_tokens
 
 
+def run_find_pattern_and_plot(csv_file, pattern_str, pattern_idx, output_dir, verbose=True):
+    """
+    Run find_pattern_in_dataset for the given pattern and save only the
+    "PLOTTING ALL INSTANCES BY CLASS (ORDERED BY SOFT ERROR)" plot into output_dir.
+    pattern_idx is used in filename (e.g. pattern_matches_by_class_1.png).
+    """
+    if verbose:
+        print(f"[Find patterns] Pattern {pattern_idx}: {str(pattern_str)[:60]}...")
+    matches_data, pattern_tokens = find_pattern_in_dataset(csv_file, pattern_str)
+
+    if not matches_data:
+        if verbose:
+            print(f"  No matches found, skipping")
+        return
+
+    # Calculate soft_error for each match (needed for plot_all_by_class)
+    for match in matches_data:
+        confidence = float(match['confidence'])
+        y_true = parse_label(match['label'])
+        match['soft_error'] = calculate_soft_error(confidence, y_true)
+        match['y_true'] = y_true
+
+    os.makedirs(output_dir, exist_ok=True)
+    idx_str = str(pattern_idx)
+
+    # Only generate the "by class" plot
+    plot_all_by_class(matches_data, pattern_tokens,
+                      save_path=os.path.join(output_dir, f'pattern_matches_by_class_{idx_str}.png'))
+
+    if verbose:
+        print(f"  Saved pattern match plot to {output_dir}")
+
+
 if __name__ == '__main__':
     pattern_str = sys.argv[1]
     idx = sys.argv[2]
 
-    csv_file = 'data/emm_mnist_5_bad_train.csv'
+    csv_file = 'data/emm_mnist_5_again2_train.csv'
+    csv_file = 'data/emm_mnist_1_bad_train.csv'
+    #csv_file = 'data/emm_mnist_6_9_new_train.csv'
+#    csv_file = 'data/emm_mnist_3_and_8_train.csv'
 
     print("="*70)
     print("PATTERN MATCHING IN FILTERED TRAIN DATASET")
@@ -510,6 +723,7 @@ if __name__ == '__main__':
                 log_loss = -math.log(1 - confidence_clamped)
 
             match['log_loss'] = log_loss
+            match['soft_error'] = calculate_soft_error(confidence, y_true)
             match['y_true'] = y_true
             match['y_pred'] = y_pred
             match['is_correct'] = (y_true == y_pred)
@@ -596,20 +810,20 @@ if __name__ == '__main__':
         balanced_all = balanced_tp + balanced_tn + balanced_fp + balanced_fn
 
         print(f"\nBalanced dataset composition:")
-        print(f"  TP (lowest log loss): {len(balanced_tp)}/{len(true_positives)} available")
-        print(f"  TN (lowest log loss): {len(balanced_tn)}/{len(true_negatives)} available")
-        print(f"  FP (highest log loss): {len(balanced_fp)}/{len(false_positives)} available")
-        print(f"  FN (highest log loss): {len(balanced_fn)}/{len(false_negatives)} available")
+        print(f"  TP (lowest soft error): {len(balanced_tp)}/{len(true_positives)} available")
+        print(f"  TN (lowest soft error): {len(balanced_tn)}/{len(true_negatives)} available")
+        print(f"  FP (highest soft error): {len(balanced_fp)}/{len(false_positives)} available")
+        print(f"  FN (highest soft error): {len(balanced_fn)}/{len(false_negatives)} available")
         print(f"  Total: {len(balanced_all)} samples")
 
         if balanced_tp:
-            print(f"\n  TP log loss range: {min(m['log_loss'] for m in balanced_tp):.6f} - {max(m['log_loss'] for m in balanced_tp):.6f}")
+            print(f"\n  TP soft error range: {min(m['soft_error'] for m in balanced_tp):.6f} - {max(m['soft_error'] for m in balanced_tp):.6f}")
         if balanced_tn:
-            print(f"  TN log loss range: {min(m['log_loss'] for m in balanced_tn):.6f} - {max(m['log_loss'] for m in balanced_tn):.6f}")
+            print(f"  TN soft error range: {min(m['soft_error'] for m in balanced_tn):.6f} - {max(m['soft_error'] for m in balanced_tn):.6f}")
         if balanced_fp:
-            print(f"  FP log loss range: {min(m['log_loss'] for m in balanced_fp):.6f} - {max(m['log_loss'] for m in balanced_fp):.6f}")
+            print(f"  FP soft error range: {min(m['soft_error'] for m in balanced_fp):.6f} - {max(m['soft_error'] for m in balanced_fp):.6f}")
         if balanced_fn:
-            print(f"  FN log loss range: {min(m['log_loss'] for m in balanced_fn):.6f} - {max(m['log_loss'] for m in balanced_fn):.6f}")
+            print(f"  FN soft error range: {min(m['soft_error'] for m in balanced_fn):.6f} - {max(m['soft_error'] for m in balanced_fn):.6f}")
 
         if balanced_all:
             plot_matched_strokes(balanced_all, pattern_tokens, max_plots=len(balanced_all),
@@ -618,7 +832,15 @@ if __name__ == '__main__':
         else:
             print("\nNo samples available for balanced plot!")
 
-        log_losses = [m['log_loss'] for m in matches_data]
+        print("\n" + "="*70)
+        print("PLOTTING ALL INSTANCES BY CLASS (ORDERED BY SOFT ERROR)")
+        print("="*70)
+
+        # Plot all instances grouped by class, ordered by soft error
+        plot_all_by_class(matches_data, pattern_tokens, save_path=f'pattern_matches_by_class_{idx}.png')
+        print(f"\nSaved by-class plot to: pattern_matches_by_class_{idx}.png")
+
+        soft_errors = [m['soft_error'] for m in matches_data]
 
         print("\n" + "="*70)
         print("MATCH STATISTICS")
@@ -631,21 +853,21 @@ if __name__ == '__main__':
         print(f"\nTotal matches found: {sum(len(m['matches']) for m in matches_data)}")
         print(f"Average matches per sequence: {sum(len(m['matches']) for m in matches_data) / len(matches_data):.2f}")
 
-        print(f"\nLog Loss Statistics:")
-        print(f"  Min log loss: {min(log_losses):.6f}")
-        print(f"  Max log loss: {max(log_losses):.6f}")
-        print(f"  Mean log loss: {sum(log_losses)/len(log_losses):.6f}")
-        print(f"  Median log loss: {sorted(log_losses)[len(log_losses)//2]:.6f}")
+        print(f"\nSoft Error Range:")
+        print(f"  Min soft error: {min(soft_errors):.6f}")
+        print(f"  Max soft error: {max(soft_errors):.6f}")
+        print(f"  Mean soft error: {sum(soft_errors)/len(soft_errors):.6f}")
+        print(f"  Median soft error: {sorted(soft_errors)[len(soft_errors)//2]:.6f}")
 
-        log_losses_by_class = defaultdict(list)
-        for match, log_loss in zip(matches_data, log_losses):
+        soft_errors_by_class = defaultdict(list)
+        for match in matches_data:
             y_true = parse_label(match['label'])
-            log_losses_by_class[y_true].append(log_loss)
+            soft_errors_by_class[y_true].append(match['soft_error'])
 
-        print(f"\nLog Loss by Class:")
-        for label in sorted(log_losses_by_class.keys()):
-            class_losses = log_losses_by_class[label]
-            print(f"  Label {label}: min={min(class_losses):.6f}, max={max(class_losses):.6f}, mean={sum(class_losses)/len(class_losses):.6f}")
+        print(f"\nSoft Error by Class:")
+        for label in sorted(soft_errors_by_class.keys()):
+            class_errors = soft_errors_by_class[label]
+            print(f"  Label {label}: min={min(class_errors):.6f}, max={max(class_errors):.6f}, mean={sum(class_errors)/len(class_errors):.6f}")
 
     else:
         print("\nNo matches found!")
