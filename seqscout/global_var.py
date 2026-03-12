@@ -16,6 +16,7 @@ class Model:
     HARD_ERRORS = None
     SOFT_ERRORS = None
     GLOBAL_HARD_ERROR = None
+    MAX_QUALITY = 0.0
 
     @classmethod
     def set_accuracy(cls, value):
@@ -133,9 +134,35 @@ class Model:
     def get_global_hard_error(cls):
         return cls.GLOBAL_HARD_ERROR
 
+    @classmethod
+    def update_max_quality(cls, quality):
+        """Update the maximum quality seen so far."""
+        if quality > cls.MAX_QUALITY:
+            cls.MAX_QUALITY = quality
+
+    @classmethod
+    def get_max_quality(cls):
+        return cls.MAX_QUALITY
+
+    @classmethod
+    def reset_max_quality(cls):
+        """Reset max quality (useful when starting a new run)."""
+        cls.MAX_QUALITY = 0.0
+
+
+COUNT_DOMINANT_ERROR_CLASS_0 = 0
+COUNT_DOMINANT_ERROR_CLASS_1 = 0
+
+def increment_dominant_error_class(value):
+    if value == 0:
+        global COUNT_DOMINANT_ERROR_CLASS_0
+        COUNT_DOMINANT_ERROR_CLASS_0 += 1
+    else:
+        global COUNT_DOMINANT_ERROR_CLASS_1
+        COUNT_DOMINANT_ERROR_CLASS_1 += 1
+
 
 ITERATION_NUMBER = 0
-
 def increase_it_number():
     global ITERATION_NUMBER
     ITERATION_NUMBER += 1

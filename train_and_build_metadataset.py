@@ -63,8 +63,8 @@ file_name = './data/dynamic_api_call_sequence_per_malware_100_0_306.dat'
 #file_name = './data/original/assessment_sequences.dat'
 #file_name = './data/original/student_sequences_plus.dat'
 #file_name = './data/ieee_fraud_sequences.dat'
-#file_name = './data/malware.dat'
-target_class = '1'
+file_name = './data/cloud_camel.dat'
+target_class = '0'
 
 print(f"Building vocabulary from {file_name}...")
 vocab, classes = build_vocab(file_name, kosarak)
@@ -254,7 +254,7 @@ print("Using Focal Loss for imbalanced classification")
 
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 25
+num_epochs = 5
 
 print("\nStarting training")
 model.train()

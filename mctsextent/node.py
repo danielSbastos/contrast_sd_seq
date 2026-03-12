@@ -1,6 +1,7 @@
 from re import A
 import general.conf as conf
 from collections import Counter
+import random
 
 from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quality, \
     get_idx_from_cumulative_prop, compute_sequence_expand
@@ -26,6 +27,8 @@ class Node():
         self._quality = None
         self._accuracy = None
         self._extend = None
+        self._size_class_0 = None
+        self._size_class_1 = None
         self._candidate_sequences_expand = None
         self._log_losses = None
         self._class_balance_score = None
@@ -40,23 +43,36 @@ class Node():
         self.number_visits = 1
         self.dead_end = False
 
+    def _ensure_quality_computed(self):
+        if self._quality is None:
+            q, a, e, n0, n1 = self.get_extend_and_quality(self.intent)
+            self._quality, self._accuracy, self._extend = q, a, e
+            self._size_class_0, self._size_class_1 = n0, n1
+
     @property
     def quality(self):
-        if self._quality is None:
-            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
+        self._ensure_quality_computed()
         return self._quality
 
     @property
     def accuracy(self):
-        if self._accuracy is None:
-            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
+        self._ensure_quality_computed()
         return self._accuracy
 
     @property
     def extend(self):
-        if self._extend is None:
-            self._quality, self._accuracy, self._extend = self.get_extend_and_quality(self.intent)
+        self._ensure_quality_computed()
         return self._extend
+
+    @property
+    def size_class_0(self):
+        self._ensure_quality_computed()
+        return self._size_class_0
+
+    @property
+    def size_class_1(self):
+        self._ensure_quality_computed()
+        return self._size_class_1
 
     @property
     def candidate_sequences_expand(self):
@@ -88,8 +104,8 @@ class Node():
         return self.quality
 
     def get_extend_and_quality(self, subsequence):
-        if self.intent == None:
-            return 0, -1, []
+        if self.intent is None:
+            return 0, -1, [], 0, 0
         return compute_quality(sequence_mutable_to_immutable(subsequence))
 
     def is_fully_expanded(self):
@@ -117,40 +133,22 @@ class Node():
         if self._log_losses is None:
             self._initialize_candidates()
         
-        weights = self._log_losses
-        sequence_children = None
-        selected_log_loss = 0.0
-        random_object_idx = None
-        
-        max_retries = min(10, len(self._candidate_sequences_expand))
-        for attempt in range(max_retries):
-            if len(self._candidate_sequences_expand) == 0:
-                break
-                
-            random_object_idx = get_idx_from_cumulative_prop(weights) or 0
-            random_object = self._candidate_sequences_expand[random_object_idx]
-            selected_log_loss = self._log_losses[random_object_idx]
+        if len(self._candidate_sequences_expand) == 0:
+            sequence_children = tuple()
+            selected_log_loss = 0.0
+        else:
+            random_object_idx = random.randint(0, len(self._candidate_sequences_expand) - 1)
+            random_object = self._candidate_sequences_expand.pop(random_object_idx)
+            selected_log_loss = self._log_losses.pop(random_object_idx)
             
             if self.intent == None:
                 sequence_children = sequence_mutable_to_immutable(random_object)
             else:
                 sequence_children = sequence_mutable_to_immutable(find_LCS(random_object, self.intent))
             
-            if len(sequence_children) > 0:
-                break
-            
-            self._candidate_sequences_expand.pop(random_object_idx)
-            self._log_losses.pop(random_object_idx)
-            weights = self._log_losses
-        
-        if sequence_children is not None and len(sequence_children) > 0 and random_object_idx is not None:
-            if random_object_idx < len(self._candidate_sequences_expand):
-                self._candidate_sequences_expand.pop(random_object_idx)
-                self._log_losses.pop(random_object_idx)
-        
-        if sequence_children is None or len(sequence_children) == 0:
-            sequence_children = tuple()
-            selected_log_loss = 0.0
+            if len(sequence_children) == 0:
+                sequence_children = tuple()
+                selected_log_loss = 0.0
 
         if sequence_children in self.node_hashmap:
             child = self.node_hashmap[sequence_children]

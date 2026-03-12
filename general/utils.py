@@ -2,6 +2,7 @@ import json
 from collections import Counter
 
 import random
+from traceback import print_tb
 
 import general.conf as conf
 
@@ -281,7 +282,7 @@ def print_results(results):
 
         sum_result += result[0]
 
-        print('Quality: {}, Extent: {}, Accuracy: {}, Pattern: {}'.format(result[0], result[2], result[3], pattern_display))
+        print('Quality: {}, Extent: {}, Pattern_Delta: {}, Pattern: {}'.format(result[0], result[2], result[3], pattern_display))
 
     print('Average score :{}'.format(sum_result / len(results)))
 
@@ -365,33 +366,102 @@ def accuracy_score_binary(y_trues, confidences):
 
     return accuracy
 
+
 def get_quality(support, data, extend, target_class=None):
     if target_class is None:
         target_class = Model.get_target_class()
-
-    hard_errors = Model.get_hard_errors()
+ 
     soft_errors = Model.get_soft_errors()
+    y_true = target_class[:, 0]
+    extend_arr = np.array(extend, dtype=int)
+ 
+    subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
+    subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
+    
+    subgroup_size_class_0 = len(subgroup_class_0)
+    subgroup_size_class_1 = len(subgroup_class_1)
+    baseline_class_0 = soft_errors[y_true == 0]
+    baseline_class_1 = soft_errors[y_true == 1]
+ 
+    if (subgroup_size_class_0 == 0 or subgroup_size_class_1 == 0 or (subgroup_size_class_0 == len(baseline_class_0) and
+        subgroup_size_class_1 == len(baseline_class_1))):
+        return 0.0, 0.0, subgroup_size_class_0, subgroup_size_class_1
 
-    if isinstance(extend, list):
-        extend_arr = np.array(extend, dtype=int)
-    else:
-        extend_arr = np.asarray(extend, dtype=int)
+    # separation term
+    mean_diff_g = abs(subgroup_class_0.mean() - subgroup_class_1.mean())
+    std_0 = subgroup_class_0.std()
+    std_1 = subgroup_class_1.std()
+    s_g = mean_diff_g / max(std_0, std_1)
 
-    subgroup_hard_error = hard_errors[extend_arr].mean()
-    subgroup_soft_error = soft_errors[extend_arr].mean()
+    # deviation term
+    mean_diff_g0_b = abs(subgroup_class_0.mean() - baseline_class_0.mean())
+    d_0 = mean_diff_g0_b / baseline_class_0.std()
+    mean_diff_g1_b = abs(subgroup_class_1.mean() - baseline_class_1.mean())
+    d_1 = mean_diff_g1_b / baseline_class_1.std()
+    d_g = max(d_0, d_1)
 
-    global_soft_error = Model.get_global_mean_error()
-    global_hard_error = Model.get_global_hard_error()
+    # class balance term
+    total_subgroup = subgroup_size_class_0 + subgroup_size_class_1
+    p0 = subgroup_size_class_0 / total_subgroup
+    p1 = subgroup_size_class_1 / total_subgroup
+    class_balance_score = (4 * p0 * p1)
+    
+    # support penalty term
+    support_penalty = (total_subgroup / len(soft_errors)) ** conf.SUPPORT_PENALTY
 
-    soft_deviation = subgroup_soft_error - global_soft_error
-    hard_deviation = subgroup_hard_error - global_hard_error
+    # quality
+    quality = s_g * d_g * class_balance_score * support_penalty
+    sigmoid_quality = 1 / (1 + np.e ** (-(quality - conf.SIGMOID_OFFSET)))
 
-    if soft_deviation <= 0 or hard_deviation <= 0:
-        return 0.0, subgroup_hard_error
+    return sigmoid_quality, mean_diff_g, subgroup_size_class_0, subgroup_size_class_1
 
-    quality = (soft_deviation ** 2) * (support / len(data)) ** 0.75
 
-    return quality, subgroup_hard_error
+def compute_sg_dg_statistic(extend, target_class, soft_errors):
+    """
+    Compute s_g * d_g only (separation × deviation). Used for statistical validation:
+    random subgroups are matched by support and class balance; the test statistic
+    is whether the pattern's extent has significantly higher s_g * d_g than those
+    random subgroups.
+    """
+    soft_errors = np.asarray(soft_errors)
+    y_true = target_class[:, 0]
+    extend_arr = np.array(extend, dtype=int)
+
+    subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
+    subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
+
+    subgroup_size_class_0 = len(subgroup_class_0)
+    subgroup_size_class_1 = len(subgroup_class_1)
+    baseline_class_0 = soft_errors[y_true == 0]
+    baseline_class_1 = soft_errors[y_true == 1]
+
+    min_per_class = 15
+    if (subgroup_size_class_0 < min_per_class or
+        subgroup_size_class_1 < min_per_class or
+        (subgroup_size_class_0 == len(baseline_class_0) and
+         subgroup_size_class_1 == len(baseline_class_1))):
+        return 0.0
+
+    std_0 = subgroup_class_0.std()
+    std_1 = subgroup_class_1.std()
+    if std_0 <= 0 or std_1 <= 0:
+        return 0.0
+    baseline_std_0 = baseline_class_0.std()
+    baseline_std_1 = baseline_class_1.std()
+    if baseline_std_0 <= 0 or baseline_std_1 <= 0:
+        return 0.0
+
+    mean_diff_g = abs(subgroup_class_0.mean() - subgroup_class_1.mean())
+    s_g = mean_diff_g / max(std_0, std_1)
+
+    mean_diff_g0_b = abs(subgroup_class_0.mean() - baseline_class_0.mean())
+    d_0 = mean_diff_g0_b / baseline_std_0
+    mean_diff_g1_b = abs(subgroup_class_1.mean() - baseline_class_1.mean())
+    d_1 = mean_diff_g1_b / baseline_std_1
+    d_g = max(d_0, d_1)
+
+    return float(s_g * d_g)
+
 
 def print_rocket_league(patterns):
     '''
@@ -428,8 +498,8 @@ def compute_quality(subsequence):
             support += 1
             extend.append(i)
 
-    quality, accuracy = get_quality(support, data, extend)
-    return quality, accuracy, extend
+    quality, pattern_delta, size_class_0, size_class_1 = get_quality(support, data, extend)
+    return quality, pattern_delta, extend, size_class_0, size_class_1
 
 
 @functools.lru_cache(maxsize=1000)
