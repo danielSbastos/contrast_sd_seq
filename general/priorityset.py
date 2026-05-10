@@ -156,6 +156,10 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
             extra['iteration_count'],
         )
 
+    hook = extra.get('phase_hook')
+    if hook:
+        hook('SIMILARITY_FILTER')
+
     print(f"================\nFILTERING BY SIMILARITY\n================")
     non_redundant_patterns = []
     for _, result in enumerate(results_list):
@@ -181,6 +185,9 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     d_results = decode_results(non_redundant_patterns, items_to_encoding)
     save_patterns_after_similarity_filter(d_results, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
+
+    if hook:
+        hook('STATISTICAL_VALIDATION')
 
     print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
     significant_patterns, significance_info = filter_by_significance(

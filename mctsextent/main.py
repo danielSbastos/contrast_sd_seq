@@ -10,6 +10,8 @@ import copy
 import math
 import select as select_module
 import threading
+import heapq
+import time
 
 from sklearn.metrics import accuracy_score
 
@@ -114,16 +116,18 @@ def update(node, reward):
         node.update(reward)
         update_nodes.remove(node)
 
-def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3, max_gap=conf.MAX_GAP, support_penalty=conf.SUPPORT_PENALTY, sigmoid_offset=conf.SIGMOID_OFFSET):
+def prepare_mcts_from_files(filename, max_gap=conf.MAX_GAP, support_penalty=conf.SUPPORT_PENALTY,
+                            sigmoid_offset=conf.SIGMOID_OFFSET, synth_patterns_path=None):
+    """Load sequences, targets, and model globals needed for MCTS (shared by get_patterns and api.MCTS)."""
     conf.MAX_GAP = max_gap
     conf.SUPPORT_PENALTY = support_penalty
     conf.SIGMOID_OFFSET = sigmoid_offset
     path = f"data/{filename}_train.dat"
-    target_path=f"data/{filename}_train.csv"
+    target_path = f"data/{filename}_train.csv"
 
     if not os.path.isfile(path):
         path = f"data/{filename}.dat"
-        target_path=f"data/{filename}.csv"
+        target_path = f"data/{filename}.csv"
 
     data = read_data_kosarak(path)
     items = extract_items(data)
@@ -179,9 +183,6 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
     print(f"Global hard error rate: {global_hard_error:.4f}")
     print(f"Global soft mean error: {global_mean_error:.4f}")
 
-    validation_data_path = None
-    validation_target_path = None
-
     base_path, ext = os.path.splitext(path)
     validation_data_path = base_path + "_test" + ext
 
@@ -194,10 +195,9 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
     noise = None
     seq_lenght = None
-    expected_patterns = []
     if synth_patterns_path:
-        expected_patterns = parse_expected_patterns(synth_patterns_path)
-        expected_patterns = encode_expected_patterns(expected_patterns, items_to_encoding)
+        _expected_patterns = parse_expected_patterns(synth_patterns_path)
+        _expected_patterns = encode_expected_patterns(_expected_patterns, items_to_encoding)
         noise = filename.split("__")[2].split('_')[1]
         seq_lenght = filename.split("__")[1][2:]
 
@@ -227,9 +227,16 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
         print("Created log losses file")
 
     Model.set_log_losses(log_losses)
+    return data, target_class, log_losses, extra, encoding_to_items
+
+
+def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_limit=2 ** 30, synth_patterns_path=None, max_length=3, max_gap=conf.MAX_GAP, support_penalty=conf.SUPPORT_PENALTY, sigmoid_offset=conf.SIGMOID_OFFSET):
+    data, target_class, log_losses, extra, encoding_to_items = prepare_mcts_from_files(
+        filename, max_gap=max_gap, support_penalty=support_penalty, sigmoid_offset=sigmoid_offset,
+        synth_patterns_path=synth_patterns_path)
 
     results = launch_mcts(data, target_class, log_losses, top_k=top_k, time_budget=time_budget, theta=theta,
-                         iterations_limit=iterations_limit, expected_patterns=expected_patterns,
+                         iterations_limit=iterations_limit,
                          extra=extra, max_length=max_length)
 
     print_results_decode(results, encoding_to_items)
@@ -238,6 +245,93 @@ def get_patterns(filename='', top_k=5, time_budget=10, theta=0.1, iterations_lim
 
 def extend_cover_minsup_abs(extend):
     return len(extend) >= conf.MIN_SUPPORT
+
+
+def init_mcts_tree(data, target_class, log_losses, top_k, theta):
+    """Build root tree + priority queue state (used by launch_mcts and api.MCTS)."""
+    data = filter_empty_sequences(data)
+    Model.set_target_class(target_class)
+    Model.set_data(data)
+    if len(log_losses) != len(data):
+        raise Exception("Log losses and data differ in length")
+    item_log_losses = calculate_item_log_losses(data, log_losses)
+    print(f"Calculated log losses for {len(item_log_losses)} items")
+    node_hashmap = {}
+    root_node = Node(None, None, node_hashmap)
+    node_hashmap[('.')] = root_node
+    print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
+    sorted_patterns = PrioritySet(k=top_k, theta=theta)
+    stats = {
+        'iteration_count': 0,
+        'max_depth_reached': 0,
+        'successful_expansions': 0,
+        'valid_from_exploration': 0,
+        'valid_from_exploitation': 0,
+        'highest_error': 0,
+    }
+    return data, root_node, sorted_patterns, node_hashmap, item_log_losses, stats
+
+
+def mcts_one_iteration(root_node, sorted_patterns, node_hashmap, item_log_losses, stats, min_per_class=10,
+                       phase_hook=None, should_abort=None):
+    """Single MCTS iteration; mutates stats and search structures."""
+    if should_abort and should_abort():
+        return 'aborted'
+
+    if phase_hook:
+        phase_hook('MAIN')
+    node_sel, is_exploration = select(root_node)
+    if node_sel == 'finished':
+        return 'finished'
+
+    node_expand, _ = node_sel.expand()
+
+    stats['max_depth_reached'] = max(stats['max_depth_reached'], node_expand.depth)
+    if len(node_expand.intent) > 0 and len(node_expand.extend) > 0:
+        stats['successful_expansions'] += 1
+
+    if (node_expand.quality > 0 and node_expand.accuracy > 0 and len(node_expand.intent)
+            and extend_cover_minsup_abs(node_expand.extend)
+            and node_expand.size_class_0 >= min_per_class and node_expand.size_class_1 >= min_per_class):
+        if is_exploration:
+            stats['valid_from_exploration'] += 1
+        else:
+            stats['valid_from_exploitation'] += 1
+        sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality,
+                            node_expand.extend, node_expand.accuracy)
+        if node_expand.accuracy > stats['highest_error']:
+            stats['highest_error'] = node_expand.accuracy
+            print(f"Highest Error: {stats['highest_error']}. Pattern: {node_expand.intent}")
+
+    if should_abort and should_abort():
+        return 'aborted'
+
+    if phase_hook:
+        phase_hook('ROLLOUT')
+    sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
+
+    if should_abort and should_abort():
+        return 'aborted'
+
+    if phase_hook:
+        phase_hook('BACKPROP')
+    reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
+    stats['max_depth_reached'] = max(stats['max_depth_reached'], reward_node.depth)
+    if (reward_node.quality > 0 and reward_node.accuracy > 0 and len(sequence_reward)
+            and extend_cover_minsup_abs(reward_node.extend)
+            and reward_node.size_class_0 >= min_per_class and reward_node.size_class_1 >= min_per_class):
+        if is_exploration:
+            stats['valid_from_exploration'] += 1
+        else:
+            stats['valid_from_exploitation'] += 1
+        sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.accuracy)
+        if reward_node.accuracy > stats['highest_error']:
+            stats['highest_error'] = reward_node.accuracy
+            print(f"Highest Error: {stats['highest_error']}. Pattern: {reward_node.intent}")
+
+    update(node_expand, reward)
+    stats['iteration_count'] += 1
+    return 'continue'
 
 
 def build_iteration_metrics(node_hashmap, iteration_count, runtime_seconds, max_depth_reached,
@@ -250,7 +344,7 @@ def build_iteration_metrics(node_hashmap, iteration_count, runtime_seconds, max_
         'runtime_seconds': runtime_seconds,
         'tree_depth_reached': max_depth_reached,
         'successful_expansions': successful_expansions,
-        'expansion_success_rate': successful_expansions / iteration_count,
+        'expansion_success_rate': (successful_expansions / iteration_count) if iteration_count else 0.0,
         'valid_from_exploration': valid_from_exploration,
         'valid_from_exploitation': valid_from_exploitation,
         'unique_patterns_in_queue': len(sorted_patterns.set),
@@ -263,117 +357,37 @@ def build_iteration_metrics(node_hashmap, iteration_count, runtime_seconds, max_
 
 
 def launch_mcts(data, target_class, log_losses, time_budget=conf.TIME_BUDGET, top_k=conf.TOP_K, theta=conf.THETA,
-                iterations_limit=conf.ITERATIONS_NUMBER, expected_patterns=[], extra={}, max_length=6):
+                iterations_limit=conf.ITERATIONS_NUMBER, extra={}, max_length=6,
+                pause_event=None, stop_event=None, **_kwargs):
     begin = datetime.datetime.utcnow()
     time_budget = datetime.timedelta(seconds=time_budget)
 
-    data = filter_empty_sequences(data)
+    data, root_node, sorted_patterns, node_hashmap, item_log_losses, stats = init_mcts_tree(
+        data, target_class, log_losses, top_k, theta)
 
-    Model.set_target_class(target_class)
-    Model.set_data(data)
-
-    if (len(log_losses) != len(data)): raise Exception("Log losses and data differ in length")
-
-    item_log_losses = calculate_item_log_losses(data, log_losses)
-    print(f"Calculated log losses for {len(item_log_losses)} items")
-
-    node_hashmap = {}
-    root_node = Node(None, None, node_hashmap)
-    node_hashmap[('.')] = root_node
-
-    print(f"Root node candidates after filtering: {len(root_node.candidate_sequences_expand)}/{len(data)}")
-
-    sorted_patterns = PrioritySet(k=top_k, theta=theta)
-    iteration_count = 0
-    max_depth_reached = 0
-    successful_expansions = 0
-    valid_from_exploration = 0
-    valid_from_exploitation = 0
-
-    highest_error = 0
-
-    user_stopped = False
-    user_show = False
-
-    def check_user_input():
-        nonlocal user_stopped
-        nonlocal user_show
-
-        try:
-            if sys.stdin.isatty() and select_module.select([sys.stdin], [], [], 0)[0]:
-                user_input = sys.stdin.readline().strip().upper()
-                if user_input == 'STOP':
-                    user_stopped = True
-                    return True
-                elif user_input == 'SHOW':
-                    user_show = True
-                    return False
-        except (select_module.error, AttributeError, OSError):
-            pass
-        return False
-
-    while datetime.datetime.utcnow() - begin <= time_budget and iteration_count < iterations_limit and not user_stopped:
-        node_sel, is_exploration = select(root_node)
-
-        if node_sel == 'finished':
-            print('Finished')
+    while (datetime.datetime.utcnow() - begin <= time_budget
+           and stats['iteration_count'] < iterations_limit):
+        if stop_event is not None and stop_event.is_set():
+            break
+        if pause_event is not None:
+            pause_event.wait()
+        if stop_event is not None and stop_event.is_set():
             break
 
-        node_expand, _ = node_sel.expand()
+        status = mcts_one_iteration(root_node, sorted_patterns, node_hashmap, item_log_losses, stats)
+        if status == 'finished':
+            print('Finished')
+            break
+        if status == 'aborted':
+            break
 
-        max_depth_reached = max(max_depth_reached, node_expand.depth)
-        if len(node_expand.intent) > 0 and len(node_expand.extend) > 0:
-            successful_expansions += 1
-
-        min_per_class = 10
-        if (node_expand.quality > 0 and node_expand.accuracy > 0 and len(node_expand.intent)
-                and extend_cover_minsup_abs(node_expand.extend)
-                and node_expand.size_class_0 >= min_per_class and node_expand.size_class_1 >= min_per_class):
-            if is_exploration:
-                valid_from_exploration += 1
-            else:
-                valid_from_exploitation += 1
-            sorted_patterns.add(sequence_mutable_to_immutable(node_expand.intent), node_expand.quality, node_expand.extend, node_expand.accuracy)
-            if node_expand.accuracy > highest_error:
-                highest_error = node_expand.accuracy
-                print(f"Highest Error: {highest_error}. Pattern: {node_expand.intent}")
-
-        sequence_reward, reward = roll_out(node_expand, item_log_losses=item_log_losses)
-
-        reward_node = Node(sequence_mutable_to_immutable(sequence_reward), node_sel, node_hashmap)
-        max_depth_reached = max(max_depth_reached, reward_node.depth)
-        if (reward_node.quality > 0 and reward_node.accuracy > 0 and len(sequence_reward)
-                and extend_cover_minsup_abs(reward_node.extend)
-                and reward_node.size_class_0 >= min_per_class and reward_node.size_class_1 >= min_per_class):
-            if is_exploration:
-                valid_from_exploration += 1
-            else:
-                valid_from_exploitation += 1
-            sorted_patterns.add(reward_node.intent, reward, reward_node.extend, reward_node.accuracy)
-            if reward_node.accuracy > highest_error:
-                highest_error = reward_node.accuracy
-                print(f"Highest Error: {highest_error}. Pattern: {reward_node.intent}")
-
-
-        update(node_expand, reward)
-
-        iteration_count += 1
-
-        if iteration_count % 100 == 0:
-            print(iteration_count)
-            if check_user_input():
-                break
-
-            if user_show:
-                sorted_patterns.show_all(extra, pattern_max_len=max_length)
-                user_show = False
-
+    iteration_count = stats['iteration_count']
     print('Number iteration mcts: {}'.format(iteration_count))
     extra['iteration_count'] = iteration_count
     runtime_seconds = (datetime.datetime.utcnow() - begin).total_seconds()
     extra['iteration_metrics'] = build_iteration_metrics(
-        node_hashmap, iteration_count, runtime_seconds, max_depth_reached,
-        successful_expansions, valid_from_exploration, valid_from_exploitation,
+        node_hashmap, iteration_count, runtime_seconds, stats['max_depth_reached'],
+        stats['successful_expansions'], stats['valid_from_exploration'], stats['valid_from_exploitation'],
         sorted_patterns,
     )
     return sorted_patterns.get_top_k_non_redundant(data, top_k, pattern_max_len=max_length, extra=extra)
