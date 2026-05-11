@@ -118,7 +118,6 @@ def update(node, reward):
 
 def prepare_mcts_from_files(filename, max_gap=conf.MAX_GAP, support_penalty=conf.SUPPORT_PENALTY,
                             sigmoid_offset=conf.SIGMOID_OFFSET, synth_patterns_path=None):
-    """Load sequences, targets, and model globals needed for MCTS (shared by get_patterns and api.MCTS)."""
     conf.MAX_GAP = max_gap
     conf.SUPPORT_PENALTY = support_penalty
     conf.SIGMOID_OFFSET = sigmoid_offset
@@ -248,7 +247,6 @@ def extend_cover_minsup_abs(extend):
 
 
 def init_mcts_tree(data, target_class, log_losses, top_k, theta):
-    """Build root tree + priority queue state (used by launch_mcts and api.MCTS)."""
     data = filter_empty_sequences(data)
     Model.set_target_class(target_class)
     Model.set_data(data)

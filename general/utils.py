@@ -247,6 +247,30 @@ def decode_sequences(results, encoding_to_item):
     return return_results
 
 
+def compute_subgroup_error_stats(extend):
+    """
+    Per-class soft-error means, stds, and subgroup sizes for coverage indices ``extend``.
+    Same definition as ``decode_results`` in ``general.priorityset`` (``y_true`` 0 vs 1 on
+    ``target_class[:, 0]``). Returns ``None`` if metrics cannot be computed.
+    """
+    target_class = Model.get_target_class()
+    soft_errors = Model.get_soft_errors()
+    if target_class is None or soft_errors is None or len(extend) == 0:
+        return None
+    extend_arr = np.array(extend, dtype=int)
+    y_true = target_class[:, 0]
+    subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
+    subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
+    return {
+        "error_class_0": float(subgroup_class_0.mean()) if len(subgroup_class_0) > 0 else 0.0,
+        "error_class_1": float(subgroup_class_1.mean()) if len(subgroup_class_1) > 0 else 0.0,
+        "std_class_0": float(subgroup_class_0.std()) if len(subgroup_class_0) >= 2 else 0.0,
+        "std_class_1": float(subgroup_class_1.std()) if len(subgroup_class_1) >= 2 else 0.0,
+        "size_class_0": len(subgroup_class_0),
+        "size_class_1": len(subgroup_class_1),
+    }
+
+
 def encode_items(items):
     item_to_encoding = {}
     encoding_to_item = {}

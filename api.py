@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 import general.conf as conf
 
+_QUEUE_STATS_TOP_N = 10
+
 
 class RunStatus(enum.Enum):
     IDLE = enum.auto()
@@ -37,7 +39,7 @@ _PHASE_TO_STATUS = {
     "STATISTICAL_VALIDATION": RunStatus.RUNNING_STATS,
 }
 
-from general.utils import decode_sequence, decode_sequences
+from general.utils import compute_subgroup_error_stats, decode_sequence, decode_sequences
 
 from mctsextent.main import (
     build_iteration_metrics,
@@ -48,19 +50,49 @@ from mctsextent.main import (
 
 
 class PatternInfo:
-    """One pattern from the priority queue (quality, support, decoded descriptor)."""
+    """One pattern from the priority queue (aligned with ``decode_results`` fields)."""
 
-    __slots__ = ("quality", "support", "descriptor")
+    __slots__ = (
+        "quality",
+        "support",
+        "descriptor",
+        "pattern_delta",
+        "error_class_0",
+        "error_class_1",
+        "std_class_0",
+        "std_class_1",
+        "size_class_0",
+        "size_class_1",
+    )
 
-    def __init__(self, quality: float, support: int, sequence, encoding_to_items):
+    def __init__(self, quality: float, sequence, extend, pattern_delta: float, encoding_to_items):
         self.quality = float(quality)
-        self.support = int(support)
+        self.support = len(extend)
+        self.pattern_delta = float(pattern_delta)
         self.descriptor = decode_sequence(sequence, encoding_to_items)
+        sg = compute_subgroup_error_stats(extend)
+        if sg is not None:
+            self.error_class_0 = sg["error_class_0"]
+            self.error_class_1 = sg["error_class_1"]
+            self.std_class_0 = sg["std_class_0"]
+            self.std_class_1 = sg["std_class_1"]
+            self.size_class_0 = sg["size_class_0"]
+            self.size_class_1 = sg["size_class_1"]
+        else:
+            self.error_class_0 = None
+            self.error_class_1 = None
+            self.std_class_0 = None
+            self.std_class_1 = None
+            self.size_class_0 = None
+            self.size_class_1 = None
 
     def __repr__(self) -> str:
         return (
             f"PatternInfo(quality={self.quality!r}, support={self.support!r}, "
-            f"descriptor={self.descriptor!r})"
+            f"pattern_delta={self.pattern_delta!r}, descriptor={self.descriptor!r}, "
+            f"error_class_0={self.error_class_0!r}, error_class_1={self.error_class_1!r}, "
+            f"std_class_0={self.std_class_0!r}, std_class_1={self.std_class_1!r}, "
+            f"size_class_0={self.size_class_0!r}, size_class_1={self.size_class_1!r})"
         )
 
     def __str__(self) -> str:
@@ -188,54 +220,84 @@ class MCTS:
                 return []
             ranked = heapq.nlargest(len(self._sorted_patterns.heap), self._sorted_patterns.heap)
             out: List[PatternInfo] = []
-            for quality, seq, extend, _delta in ranked:
-                out.append(PatternInfo(quality, len(extend), seq, self.encoding_to_items))
+            for quality, seq, extend, pattern_delta in ranked:
+                out.append(PatternInfo(quality, seq, extend, pattern_delta, self.encoding_to_items))
             return out
 
     def queue_stats(self) -> Dict[str, Any]:
         """
-        Snapshot of priority-queue aggregates: ``avg_quality``, ``avg_support``, ``num_patterns``,
-        ``iteration_count``, ``top_quality``, and ``top_pattern_descriptor`` (decoded itemsets for
-        one highest-quality pattern).
+        Snapshot over the **top 10** heap entries by quality: ``top10_avg_quality``,
+        ``top10_avg_support``, and ``top10_patterns`` (one dict per pattern: ``quality``,
+        ``pattern_descriptor``, ``error_class_*``, ``std_class_*``, ``size_class_*``).
         """
         with self._lock:
             ic = 0 if self._stats is None else self._stats["iteration_count"]
             enc = self.encoding_to_items
+
+            null_row = {
+                "pattern_descriptor": None,
+                "error_class_0": None,
+                "error_class_1": None,
+                "std_class_0": None,
+                "std_class_1": None,
+                "size_class_0": None,
+                "size_class_1": None,
+            }
+
             if not self._sorted_patterns or not self._sorted_patterns.heap:
                 return {
-                    "avg_quality": 0.0,
-                    "avg_support": 0.0,
+                    "top10_avg_quality": 0.0,
+                    "top10_avg_support": 0.0,
                     "num_patterns": 0,
                     "iteration_count": ic,
-                    "top_quality": 0.0,
-                    "top_pattern_descriptor": None,
+                    "top10_patterns": [],
                 }
 
             heap = self._sorted_patterns.heap
             n = len(heap)
+            k = min(_QUEUE_STATS_TOP_N, n)
+            top = heapq.nlargest(k, heap)
+
             sum_quality = 0.0
             sum_support = 0
-            for quality, _seq, extend, _delta in heap:
+            top10_patterns: List[Dict[str, Any]] = []
+            for quality, seq, extend, _pattern_delta in top:
                 sum_quality += quality
                 sum_support += len(extend)
-
-            top_tup = max(heap, key=lambda t: t[0])
-            top_quality = float(top_tup[0])
-            top_pattern_descriptor = decode_sequence(top_tup[1], enc)
+                desc = decode_sequence(seq, enc)
+                sg = compute_subgroup_error_stats(extend)
+                if sg is not None:
+                    top10_patterns.append(
+                        {
+                            "quality": float(quality),
+                            "pattern_descriptor": desc,
+                            "error_class_0": sg["error_class_0"],
+                            "error_class_1": sg["error_class_1"],
+                            "std_class_0": sg["std_class_0"],
+                            "std_class_1": sg["std_class_1"],
+                            "size_class_0": sg["size_class_0"],
+                            "size_class_1": sg["size_class_1"],
+                        }
+                    )
+                else:
+                    row = dict(null_row)
+                    row["quality"] = float(quality)
+                    row["pattern_descriptor"] = desc
+                    top10_patterns.append(row)
 
             return {
-                "avg_quality": sum_quality / n,
-                "avg_support": sum_support / n,
+                "top10_avg_quality": sum_quality / k,
+                "top10_avg_support": sum_support / k,
                 "num_patterns": n,
                 "iteration_count": ic,
-                "top_quality": top_quality,
-                "top_pattern_descriptor": top_pattern_descriptor,
+                "top10_patterns": top10_patterns,
             }
 
-    def finalize_results(self, *, decode: bool = True, stop_worker: bool = True) -> Any:
+    def finalize_results(self, *, stop_worker: bool = True) -> Any:
         """
         Run the same post-processing as ``launch_mcts`` after search: similarity filter, statistical
         validation, and **writing output files** (via ``save_all_patterns`` / related helpers).
+        Returns decoded sequences (same shape as ``get_patterns``).
 
         Files are not written during ``run()`` alone; call this when the run should be persisted.
 
@@ -278,9 +340,7 @@ class MCTS:
         finally:
             self._status = RunStatus.STOPPED
 
-        if decode:
-            return decode_sequences(results, self.encoding_to_items)
-        return results
+        return decode_sequences(results, self.encoding_to_items)
 
     def run(self, iterations: Optional[int] = None) -> None:
         """

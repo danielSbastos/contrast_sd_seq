@@ -2,13 +2,12 @@ import heapq
 import os
 import numpy as np
 from datetime import datetime
-from general.utils import decode_sequence
+from general.utils import decode_sequence, compute_subgroup_error_stats
 import general.conf as conf
 
 from general.utils import is_subsequence, sequence_mutable_to_immutable
 from statistical_validation import filter_by_significance
 from save_results import save_all_patterns, save_patterns_after_similarity_filter, save_patterns_after_stats_validation, save_iteration_metrics
-from seqscout.global_var import Model
 
 
 def jaccard_measure_misere(sequence1, sequence2, data):
@@ -40,9 +39,6 @@ def decode_results(results_list, items_to_encoding):
     encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
     decoded_results = []
 
-    target_class = Model.get_target_class()
-    soft_errors = Model.get_soft_errors()
-
     for idx, result in enumerate(results_list):
         quality, sequence, extend, pattern_delta = result
         pattern_display = ''
@@ -50,26 +46,7 @@ def decode_results(results_list, items_to_encoding):
         for itemset in decoded_seq:
             pattern_display += repr(set(itemset))
 
-        error_class_0 = None
-        error_class_1 = None
-        std_class_0 = None
-        std_class_1 = None
-        size_class_0 = 0
-        size_class_1 = 0
-        
-        if target_class is not None and soft_errors is not None and len(extend) > 0:
-            extend_arr = np.array(extend, dtype=int)
-            y_true = target_class[:, 0]
-            
-            subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
-            subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
-            
-            error_class_0 = subgroup_class_0.mean() if len(subgroup_class_0) > 0 else 0.0
-            error_class_1 = subgroup_class_1.mean() if len(subgroup_class_1) > 0 else 0.0
-            std_class_0 = float(subgroup_class_0.std()) if len(subgroup_class_0) >= 2 else 0.0
-            std_class_1 = float(subgroup_class_1.std()) if len(subgroup_class_1) >= 2 else 0.0
-            size_class_0 = len(subgroup_class_0)
-            size_class_1 = len(subgroup_class_1)
+        sg = compute_subgroup_error_stats(extend)
 
         result_dict = { 
             'pattern': decoded_seq, 
@@ -78,18 +55,18 @@ def decode_results(results_list, items_to_encoding):
             'pattern_delta': pattern_delta 
         }
         
-        if error_class_0 is not None and error_class_1 is not None:
-            result_dict['error_class_0'] = error_class_0
-            result_dict['error_class_1'] = error_class_1
-            result_dict['size_class_0'] = size_class_0
-            result_dict['size_class_1'] = size_class_1
-            result_dict['std_class_0'] = std_class_0
-            result_dict['std_class_1'] = std_class_1
+        if sg is not None:
+            result_dict['error_class_0'] = sg['error_class_0']
+            result_dict['error_class_1'] = sg['error_class_1']
+            result_dict['size_class_0'] = sg['size_class_0']
+            result_dict['size_class_1'] = sg['size_class_1']
+            result_dict['std_class_0'] = sg['std_class_0']
+            result_dict['std_class_1'] = sg['std_class_1']
         
         decoded_results.append(result_dict)
         
-        if error_class_0 is not None and error_class_1 is not None:
-            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Class0_Error={error_class_0:.4f} (n={size_class_0}), Class1_Error={error_class_1:.4f} (n={size_class_1}), Class0_Std={std_class_0:.4f}, Class1_Std={std_class_1:.4f}, Pattern={pattern_display}")
+        if sg is not None:
+            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Class0_Error={sg['error_class_0']:.4f} (n={sg['size_class_0']}), Class1_Error={sg['error_class_1']:.4f} (n={sg['size_class_1']}), Class0_Std={sg['std_class_0']:.4f}, Class1_Std={sg['std_class_1']:.4f}, Pattern={pattern_display}")
         else:
             print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
