@@ -107,7 +107,7 @@ def update(node, reward):
     parents_seen = set()
 
     while len(update_nodes) != 0:
-        node = random.sample(update_nodes, 1)[0]
+        node = random.sample(list(update_nodes), 1)[0]
         parents_seen.add(node)
         for parent in node.parents:
             if parent not in parents_seen:
