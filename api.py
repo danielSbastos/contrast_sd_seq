@@ -179,13 +179,22 @@ class MCTS:
             if self._stop_event.is_set():
                 self._status = RunStatus.ABORTED if self._abort_requested else RunStatus.STOPPED
                 return
+
+            run_iteration = False
             with self._lock:
                 if datetime.datetime.utcnow() - self._wall_begin > self._time_budget_td:
                     self._status = RunStatus.STOPPED
                     return
                 if self._stats["iteration_count"] >= self.iterations_limit:
-                    self._status = RunStatus.STOPPED
-                    return
+                    self._status = RunStatus.PAUSED
+                else:
+                    run_iteration = True
+
+            if not run_iteration:
+                self._pause_event.clear()
+                continue
+
+            with self._lock:
                 status = mcts_one_iteration(
                     self._root_node,
                     self._sorted_patterns,
@@ -345,7 +354,8 @@ class MCTS:
     def run(self, iterations: Optional[int] = None) -> None:
         """
         Start or resume the background search. If ``iterations`` is set, increases the
-        iteration cap by that many steps so a paused/stopped run can continue (same tree).
+        iteration cap by that many steps (required after hitting ``iterations_limit``, which
+        pauses the worker without stopping the thread).
         """
         if iterations is not None:
             self.iterations_limit += int(iterations)
