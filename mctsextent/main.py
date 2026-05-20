@@ -40,7 +40,8 @@ def best_child(node):
         if child.is_dead_end():
             continue
         a = child.get_normalized_quality() / child.number_visits
-        b = 0.5 * math.sqrt(2 * math.log(node.number_visits) / child.number_visits)
+        uct_factor = getattr(conf, "UCT_FACTOR", 0.5)
+        b = uct_factor * math.sqrt(2 * math.log(node.number_visits) / child.number_visits)
         current_ucb = a + b
 
         if current_ucb > max_score:
