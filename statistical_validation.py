@@ -148,7 +148,7 @@ def filter_by_significance(
         records.append((idx, pattern, p, diff, class_balance))
 
     if not p_values:
-        return [], {}
+        return [], {}, {}
 
     print(f"\n Applying FDR correction")
     rejected, corrected_p, _, _ = multipletests(p_values, alpha=alpha, method='fdr_bh')
@@ -156,7 +156,9 @@ def filter_by_significance(
     encoding_to_items = {v: k for k, v in items_to_encoding.items()}
     info = []
     significant = []
+    p_values_map = {}
     for (idx, pattern, raw_p, diff, class_balance), is_sig, corr_p in zip(records, rejected, corrected_p):
+        p_values_map[pattern[1]] = float(corr_p)
         info.append({
             'pattern': decode_sequence(pattern[1], encoding_to_items),
             'quality': pattern[0],
@@ -177,4 +179,4 @@ def filter_by_significance(
     print(f"\n Found {len(significant)} significant patterns out of {valid_count} tested.")
     print(f"  Validation completed in {elapsed:.2f} seconds.")
 
-    return significant, info
+    return significant, info, p_values_map

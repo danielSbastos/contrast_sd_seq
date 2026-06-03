@@ -161,7 +161,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         hook('STATISTICAL_VALIDATION')
 
     print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
-    significant_patterns, significance_info = filter_by_significance(
+    significant_patterns, significance_info, p_values_map = filter_by_significance(
         non_redundant_patterns[:k_prime],
         validation_data_path=validation_data_path,
         validation_target_path=validation_target_path,
@@ -177,7 +177,12 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
     save_patterns_after_stats_validation(significance_info, extra['dataset_name'], timestamp, extra['iteration_count'])
 
-    return significant_patterns[:k]
+    final_results = []
+    for pattern in non_redundant_patterns[:k]:
+        corr_p = p_values_map.get(pattern[1], 1.0)
+        final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], corr_p))
+
+    return final_results
 
 
 class PrioritySet(object):

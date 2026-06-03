@@ -901,6 +901,7 @@ class MCTS:
             extra["iteration_count"] = self._stats["iteration_count"] if self._stats else 0
             extra["phase_hook"] = self._set_phase_status
             
+            prev_status = self._status
             try:
                 from general.priorityset import filter_results
                 results = filter_results(
@@ -913,6 +914,8 @@ class MCTS:
             except Exception as e:
                 print(f"[ERROR] failed filtering non-redundant patterns: {e}")
                 results = heapq.nlargest(self.top_k, self._sorted_patterns.heap)
+            finally:
+                self._status = prev_status
                 
             out: List[PatternInfo] = []
             for item in results:

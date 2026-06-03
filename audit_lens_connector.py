@@ -362,6 +362,7 @@ def main():
                 RunStatus.ABORTED,
             )
 
+
             weights = config.get("weights")
             params = {
                 "max_gap": config.get("max_gap"),
