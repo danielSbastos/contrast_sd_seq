@@ -10,25 +10,11 @@ from statistical_validation import filter_by_significance
 from save_results import save_all_patterns, save_patterns_after_similarity_filter, save_patterns_after_stats_validation, save_iteration_metrics
 
 
-def jaccard_measure_misere(sequence1, sequence2, data):
-    intersection = 0
-    union = 0
-    for sequence in data:
-        sequence = sequence_mutable_to_immutable(sequence)
-        seq1 = False
-        seq2 = False
-
-        if is_subsequence(sequence1, sequence, max_gap=conf.MAX_GAP):
-            seq1 = True
-        if is_subsequence(sequence2, sequence, max_gap=conf.MAX_GAP):
-            seq2 = True
-
-        if seq1 or seq2:
-            union += 1
-
-        if seq1 and seq2:
-            intersection += 1
-
+def jaccard_measure_misere(extend1, extend2):
+    set1 = set(extend1)
+    set2 = set(extend2)
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
     try:
         return intersection / union
     except ZeroDivisionError:
@@ -40,7 +26,11 @@ def decode_results(results_list, items_to_encoding):
     decoded_results = []
 
     for idx, result in enumerate(results_list):
-        quality, sequence, extend, pattern_delta = result
+        if len(result) == 5:
+            quality, sequence, extend, pattern_delta, corr_p = result
+        else:
+            quality, sequence, extend, pattern_delta = result
+            corr_p = None
         pattern_display = ''
         decoded_seq = decode_sequence(sequence, encoding_to_items)
         for itemset in decoded_seq:
@@ -54,6 +44,8 @@ def decode_results(results_list, items_to_encoding):
             'support': len(extend), 
             'pattern_delta': pattern_delta 
         }
+        if corr_p is not None:
+            result_dict['p_value_bh'] = corr_p
         
         if sg is not None:
             result_dict['error_class_0'] = sg['error_class_0']
@@ -66,9 +58,11 @@ def decode_results(results_list, items_to_encoding):
         decoded_results.append(result_dict)
         
         if sg is not None:
-            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Class0_Error={sg['error_class_0']:.4f} (n={sg['size_class_0']}), Class1_Error={sg['error_class_1']:.4f} (n={sg['size_class_1']}), Class0_Std={sg['std_class_0']:.4f}, Class1_Std={sg['std_class_1']:.4f}, Pattern={pattern_display}")
+            p_str = f", p_val={corr_p:.6f}" if corr_p is not None else ""
+            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}{p_str}, Class0_Error={sg['error_class_0']:.4f} (n={sg['size_class_0']}), Class1_Error={sg['error_class_1']:.4f} (n={sg['size_class_1']}), Class0_Std={sg['std_class_0']:.4f}, Class1_Std={sg['std_class_1']:.4f}, Pattern={pattern_display}")
         else:
-            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+            p_str = f", p_val={corr_p:.6f}" if corr_p is not None else ""
+            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}{p_str}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
     return decoded_results
 
@@ -145,7 +139,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         max_jaccard = 0.0
 
         for _, filtered_element in enumerate(non_redundant_patterns):
-            jaccard_sim = jaccard_measure_misere(result[1], filtered_element[1], data)
+            jaccard_sim = jaccard_measure_misere(result[2], filtered_element[2])
 
             if jaccard_sim > max_jaccard:
                 max_jaccard = jaccard_sim
@@ -202,8 +196,19 @@ class PrioritySet(object):
 
     def add(self, sequence, quality, extend, pattern_delta):
         if sequence not in self.set:
-            heapq.heappush(self.heap, (quality, sequence, extend, pattern_delta))
-            self.set.add(sequence)
+            if type(extend).__name__ == 'DeletedExtend':
+                from general.utils import compute_quality
+                _, _, extend, _, _ = compute_quality(sequence)
+
+            limit = max(500, self.k * 5)
+            if len(self.heap) < limit:
+                heapq.heappush(self.heap, (quality, sequence, extend, pattern_delta))
+                self.set.add(sequence)
+            else:
+                if quality > self.heap[0][0]:
+                    removed = heapq.heappushpop(self.heap, (quality, sequence, extend, pattern_delta))
+                    self.set.remove(removed[1])
+                    self.set.add(sequence)
             self.proposal_count[sequence] = 1
         else:
             self.redundant_add_count += 1

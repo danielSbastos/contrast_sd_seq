@@ -10,8 +10,25 @@ from general.utils import find_LCS, sequence_mutable_to_immutable, compute_quali
 from seqscout.global_var import Model
 
 
+class DeletedExtend:
+    def __init__(self, size):
+        self.size = size
+    def __len__(self):
+        return self.size
+    def __iter__(self):
+        return iter(())
+    def __bool__(self):
+        return self.size > 0
+
+
 class Node():
-    def __init__(self, intent, parent, node_hashmap):
+    __slots__ = (
+        'intent', 'depth', '_quality', '_accuracy', '_extend',
+        '_size_class_0', '_size_class_1', '_candidate_sequences_expand',
+        '_log_losses', '_class_balance_score', 'parents', 'children',
+        'number_visits', 'dead_end', '_support'
+    )
+    def __init__(self, intent, parent, node_hashmap=None):
         '''
         :param added_object:
         :param extend: identifiers of objects
@@ -21,7 +38,6 @@ class Node():
         '''
 
         self.intent = intent
-        self.node_hashmap = node_hashmap
         self.depth = 0 if parent is None else parent.depth + 1
 
         self._quality = None
@@ -43,11 +59,14 @@ class Node():
         self.number_visits = 1
         self.dead_end = False
 
+        self.check_and_propagate_dead_end()
+
     def _ensure_quality_computed(self):
         if self._quality is None:
             q, a, e, n0, n1 = self.get_extend_and_quality(self.intent)
             self._quality, self._accuracy, self._extend = q, a, e
             self._size_class_0, self._size_class_1 = n0, n1
+            self._support = len(e) if e is not None else 0
 
     @property
     def quality(self):
@@ -95,10 +114,14 @@ class Node():
         log_losses = Model.get_log_losses()
         self._candidate_sequences_expand = []
         self._log_losses = []
-        for idx, seq in candidate_sequences_expand:
+        for idx in candidate_sequences_expand:
             if log_losses[idx] >= conf.LOG_LOSS_THRESHOLD:
-                self._candidate_sequences_expand.append(seq)
+                self._candidate_sequences_expand.append(idx)
                 self._log_losses.append(log_losses[idx])
+
+        # Release the memory of the large extend list
+        self._support = len(self._extend) if self._extend is not None else 0
+        self._extend = DeletedExtend(self._support)
 
     def get_normalized_quality(self):
         return self.quality
@@ -115,21 +138,17 @@ class Node():
         return len(self.extend) == len(Model.get_data())
 
     def is_dead_end(self):
-        if self.is_terminal() or self.dead_end:
+        return self.dead_end
+
+    def check_and_propagate_dead_end(self):
+        if self.dead_end:
+            return
+        if self.is_terminal() or (self.is_fully_expanded() and all(child.dead_end for child in self.children)):
             self.dead_end = True
-            return True
+            for parent in self.parents:
+                parent.check_and_propagate_dead_end()
 
-        if not self.is_fully_expanded():
-            return False
-
-        for child in self.children:
-            if not child.is_dead_end():
-                return False
-
-        self.dead_end = True
-        return True
-
-    def expand(self):
+    def expand(self, node_hashmap):
         if self._log_losses is None:
             self._initialize_candidates()
         
@@ -138,7 +157,8 @@ class Node():
             selected_log_loss = 0.0
         else:
             random_object_idx = random.randint(0, len(self._candidate_sequences_expand) - 1)
-            random_object = self._candidate_sequences_expand.pop(random_object_idx)
+            random_object_idx_val = self._candidate_sequences_expand.pop(random_object_idx)
+            random_object = Model.get_data()[random_object_idx_val]
             selected_log_loss = self._log_losses.pop(random_object_idx)
             
             if self.intent == None:
@@ -150,13 +170,17 @@ class Node():
                 sequence_children = tuple()
                 selected_log_loss = 0.0
 
-        if sequence_children in self.node_hashmap:
-            child = self.node_hashmap[sequence_children]
-            child.parents.append(self)
-            self.children.append(child)
+        if sequence_children in node_hashmap:
+            child = node_hashmap[sequence_children]
+            if self not in child.parents:
+                child.parents.append(self)
+            if child not in self.children:
+                self.children.append(child)
         else:
-            child = Node(sequence_children, self, self.node_hashmap)
-            self.node_hashmap[sequence_children] = child
+            child = Node(sequence_children, self, node_hashmap)
+            node_hashmap[sequence_children] = child
+
+        self.check_and_propagate_dead_end()
 
         return child, selected_log_loss
 
@@ -165,3 +189,16 @@ class Node():
         self._quality = (self.number_visits * current_quality + reward) / (
                 self.number_visits + 1)
         self.number_visits += 1
+
+    def __getstate__(self):
+        state = {}
+        for slot in self.__slots__:
+            if hasattr(self, slot):
+                state[slot] = getattr(self, slot)
+        return state
+
+    def __setstate__(self, state):
+        if isinstance(state, dict):
+            for slot in self.__slots__:
+                if slot in state:
+                    setattr(self, slot, state[slot])

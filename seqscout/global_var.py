@@ -54,9 +54,20 @@ class Model:
     def get_target_class(cls):
         return cls.TARGET_CLASS
 
+    INVERTED_INDEX = None
+    VALIDATION_INVERTED_INDEX = None
+
     @classmethod
     def set_data(cls, value):
         cls.DATA = value
+        cls.INVERTED_INDEX = {}
+        if value is not None:
+            for idx, seq in enumerate(value):
+                for itemset in seq:
+                    for item in itemset:
+                        if item not in cls.INVERTED_INDEX:
+                            cls.INVERTED_INDEX[item] = set()
+                        cls.INVERTED_INDEX[item].add(idx)
 
     @classmethod
     def get_data(cls):
@@ -65,10 +76,20 @@ class Model:
     @classmethod
     def set_validation_data(cls, value):
         cls.VALIDATION_DATA = value
+        cls.VALIDATION_INVERTED_INDEX = {}
+        if value is not None:
+            for idx, seq in enumerate(value):
+                for itemset in seq:
+                    for item in itemset:
+                        if item not in cls.VALIDATION_INVERTED_INDEX:
+                            cls.VALIDATION_INVERTED_INDEX[item] = set()
+                        cls.VALIDATION_INVERTED_INDEX[item].add(idx)
 
     @classmethod
     def get_validation_data(cls):
         return cls.VALIDATION_DATA
+
+
 
     @classmethod
     def set_validation_target_class(cls, value):
@@ -166,3 +187,32 @@ ITERATION_NUMBER = 0
 def increase_it_number():
     global ITERATION_NUMBER
     ITERATION_NUMBER += 1
+
+
+def get_candidate_sequence_indices(subsequence, is_validation=False):
+    inv_index = Model.VALIDATION_INVERTED_INDEX if is_validation else Model.INVERTED_INDEX
+    data_len = len(Model.VALIDATION_DATA if is_validation else Model.DATA)
+    
+    if not subsequence or inv_index is None:
+        return range(data_len)
+    
+    items = []
+    for itemset in subsequence:
+        for item in itemset:
+            items.append(item)
+            
+    if not items:
+        return range(data_len)
+        
+    items.sort(key=lambda x: len(inv_index.get(x, ())))
+    
+    result = inv_index.get(items[0], set())
+    if not result:
+        return ()
+        
+    for item in items[1:]:
+        result = result.intersection(inv_index.get(item, ()))
+        if not result:
+            return ()
+            
+    return result

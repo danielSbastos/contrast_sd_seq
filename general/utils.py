@@ -298,6 +298,10 @@ def extract_items(data):
 
 
 def print_results(results):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -312,6 +316,10 @@ def print_results(results):
 
 
 def print_results_retails(results, items_dict):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -330,6 +338,10 @@ def print_results_retails(results, items_dict):
 
 
 def print_results_mcts(results, encoding_to_items):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -358,6 +370,9 @@ def print_results_decode(results, encoding_to_items):
 
 
 def average_results(results):
+    if len(results) == 0:
+        return np.nan
+
     sum_result = 0
     for result in results:
         sum_result += result[0]
@@ -517,11 +532,16 @@ def compute_quality(subsequence):
     support = 0
     extend = []
 
-    for i, sequence in enumerate(data):
+    from seqscout.global_var import get_candidate_sequence_indices
+    candidates = get_candidate_sequence_indices(subsequence, is_validation=False)
+
+    for i in candidates:
+        sequence = data[i]
         if is_subsequence(subsequence, sequence, max_gap=max_gap):
             support += 1
             extend.append(i)
 
+    extend = np.array(extend, dtype=np.uint32)
     quality, pattern_delta, size_class_0, size_class_1 = get_quality(support, data, extend)
     return quality, pattern_delta, extend, size_class_0, size_class_1
 
@@ -529,10 +549,8 @@ def compute_quality(subsequence):
 @functools.lru_cache(maxsize=1000)
 def compute_sequence_expand(intent, extend):
     data = Model.get_data()
-    if intent is None:
-        return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend])
-    max_gap = conf.MAX_GAP
-    return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend and not is_subsequence(intent, seq, max_gap=max_gap)])
+    extend_set = set(extend)
+    return tuple([i for i in range(len(data)) if i not in extend_set])
 
 import seqscout.global_var
 
