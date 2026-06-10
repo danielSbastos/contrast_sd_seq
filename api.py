@@ -188,6 +188,9 @@ class MCTS:
         sigmoid_offset: float = conf.SIGMOID_OFFSET,
         synth_patterns_path: Optional[str] = None,
         state_dir: str = ".mcts_state",
+        uct_factor: float = conf.UCT_FACTOR,
+        min_support: int = conf.MIN_SUPPORT,
+        snapshot_callback=None,
         **props,
     ):
         if props:
@@ -201,6 +204,11 @@ class MCTS:
         self.max_length = max_length
         self.state_dir = state_dir
         self.synth_patterns_path = synth_patterns_path
+        self.max_gap = max_gap
+        self.support_penalty = support_penalty
+        self.uct_factor = uct_factor
+        self.min_support = min_support
+        self.snapshot_callback = snapshot_callback
 
         self._data, self._target_class, self._log_losses, self.extra, self.encoding_to_items = (
             prepare_mcts_from_files(
@@ -234,6 +242,12 @@ class MCTS:
         self._thread: Optional[threading.Thread] = None
         self._budget_remaining: int = 0
         self._run_deadline: Optional[float] = None
+        self.budget_chunk: Optional[float] = float(time_budget)
+        self.spent_budget: float = 0.0
+        self._chunk_start_time: Optional[float] = None
+        self._just_resumed = False
+        self._resume_config_snapshot = {}
+        self._last_snapshot_time = 0.0
 
     def _set_phase_status(self, phase: str) -> None:
         self._status = _PHASE_TO_STATUS.get(phase, RunStatus.RUNNING_MAIN)
@@ -275,6 +289,8 @@ class MCTS:
                     print(f"[ERROR] Failed clearing caches: {e}")
 
             self._pause_event.wait()
+
+            # Check if stop event has been set
             if self._stop_event.is_set():
                 self._status = RunStatus.ABORTED if self._abort_requested else RunStatus.STOPPED
                 with self._lock:
@@ -285,49 +301,69 @@ class MCTS:
                         best_q = max(p[0] for p in self._sorted_patterns.heap)
                     history = self._stats.setdefault("anytime_quality_history", [])
                     history.append([self._stats["total_elapsed_time"], best_q])
+                if self.snapshot_callback:
+                    self.snapshot_callback(self, "finished" if not self._abort_requested else "aborted")
                 return
 
-            run_iteration = False
-            with self._lock:
-                now = time.time()
-                iter_count = self._stats.get("iteration_count", 0) if self._stats else 0
-                
-                # Enforce deadline, BUT allow at least 10 iterations per cycle before enforcing
-                # This prevents early exit when deadline might be very short or timing is tight
-                if self._run_deadline is not None:
-                    time_until_deadline = self._run_deadline - now
-                    if time_until_deadline <= 0 and iter_count >= 10:
-                        # Deadline exceeded
-                        self._run_deadline = None
-                        self._status = RunStatus.PAUSED
-                        self._pause_event.clear()
-                        if iter_count % 1000 == 0:  # Log occasionally to avoid spam
-                            print(f"[DEBUG] Deadline exceeded at iteration {iter_count}, time_until_deadline={time_until_deadline:.3f}s")
-                        continue
-                    
-                if self._stats["iteration_count"] >= self.iterations_limit:
+            # Check if budget/deadline is already exhausted before starting iteration
+            now = time.time()
+            if self._run_deadline is not None and now >= self._run_deadline:
+                with self._lock:
+                    if self._chunk_start_time is not None:
+                        self.spent_budget = now - self._chunk_start_time
                     self._status = RunStatus.PAUSED
                     self._pause_event.clear()
-                else:
-                    run_iteration = True
+                    elapsed_this_run = (datetime.datetime.now(timezone.utc) - self._wall_begin).total_seconds()
+                    self._stats["total_elapsed_time"] = self._stats.get("total_elapsed_time", 0.0) + elapsed_this_run
+                    best_q = 0.0
+                    if self._sorted_patterns and self._sorted_patterns.heap:
+                        best_q = max(p[0] for p in self._sorted_patterns.heap)
+                    history = self._stats.setdefault("anytime_quality_history", [])
+                    history.append([self._stats["total_elapsed_time"], best_q])
+                print(f"[INFO] MCTS Execution Paused: Budget deadline reached. Awaiting instructions.")
+                if self.snapshot_callback:
+                    self.snapshot_callback(self, "paused")
+                continue
 
-            if not run_iteration:
+            # Validation immediately posterior to resumption
+            if getattr(self, "_just_resumed", False):
+                with self._lock:
+                    snapshot = getattr(self, "_resume_config_snapshot", {})
+                    assert self.theta == snapshot.get("theta"), "theta mismatch on resumption"
+                    assert getattr(conf, "MAX_GAP") == snapshot.get("max_gap"), "max_gap mismatch on resumption"
+                    assert getattr(conf, "SUPPORT_PENALTY") == snapshot.get("support_penalty"), "support_penalty mismatch on resumption"
+                    assert getattr(conf, "UCT_FACTOR") == snapshot.get("uct_factor"), "uct_factor mismatch on resumption"
+                    assert getattr(conf, "MIN_SUPPORT") == snapshot.get("min_support"), "min_support mismatch on resumption"
+                    assert self.iterations_limit == snapshot.get("iterations_limit"), "iterations_limit mismatch on resumption"
+                    
+                    print(f"[INFO] Hyperparameter validation passed on resumption. Active properties: theta={self.theta}, max_gap={conf.MAX_GAP}, support_penalty={conf.SUPPORT_PENALTY}, uct_factor={conf.UCT_FACTOR}, min_support={conf.MIN_SUPPORT}, iterations_limit={self.iterations_limit}. Tree structure preserved.")
+                    self._just_resumed = False
+
+            # Check iterations limit
+            if self._stats["iteration_count"] >= self.iterations_limit:
+                with self._lock:
+                    self._status = RunStatus.PAUSED
+                    self._pause_event.clear()
+                print(f"[INFO] MCTS Execution Paused: Iterations limit reached. Awaiting instructions.")
+                if self.snapshot_callback:
+                    self.snapshot_callback(self, "paused")
                 continue
 
             def check_abort() -> bool:
                 if self._stop_event.is_set():
                     return True
-                # Only check deadline during iteration if we've done many iterations (graceful termination)
-                iter_count = self._stats.get("iteration_count", 0) if self._stats else 0
-                if self._run_deadline is not None and time.time() >= self._run_deadline and iter_count >= 50:
+                if self._run_deadline is not None and time.time() >= self._run_deadline:
                     return True
-                # Circuit breaker check (with iteration count to skip early iterations)
+                # Circuit breaker check
                 with self._lock:
                     node_count = len(self._node_hashmap) if self._node_hashmap is not None else 0
+                    iter_count = self._stats.get("iteration_count", 0) if self._stats else 0
                 if check_circuit_breaker(node_count, iteration_count=iter_count):
                     return True
                 return False
 
+            # Run a search iteration
+            status = "running"
             with self._lock:
                 from mctsextent.main import current_node_weights
                 status = mcts_one_iteration(
@@ -342,6 +378,9 @@ class MCTS:
                 )
 
                 # Update anytime quality and elapsed time at the end of each iteration
+                now_after = time.time()
+                if self._chunk_start_time is not None:
+                    self.spent_budget = now_after - self._chunk_start_time
                 elapsed_this_run = (datetime.datetime.now(timezone.utc) - self._wall_begin).total_seconds()
                 total_elapsed = self._stats.get("total_elapsed_time", 0.0) + elapsed_this_run
                 
@@ -353,60 +392,59 @@ class MCTS:
                 if not history or best_q > history[-1][1]:
                     history.append([total_elapsed, best_q])
 
-                if self._run_deadline is not None and time.time() >= self._run_deadline:
-                    self._run_deadline = None
-                    self._status = RunStatus.PAUSED
-                    self._pause_event.clear()
-
-            if status == "finished":
-                # The search tree is exhausted, but we may still have time budget.
-                # Keep running for the full budget unless deadline has been reached.
-                if self._run_deadline is not None and time.time() >= self._run_deadline:
-                    # Time budget exhausted - stop now
-                    self._status = RunStatus.STOPPED
-                    with self._lock:
-                        elapsed_this_run = (datetime.datetime.now(timezone.utc) - self._wall_begin).total_seconds()
-                        self._stats["total_elapsed_time"] = self._stats.get("total_elapsed_time", 0.0) + elapsed_this_run
-                        best_q = 0.0
-                        if self._sorted_patterns and self._sorted_patterns.heap:
-                            best_q = max(p[0] for p in self._sorted_patterns.heap)
-                        history = self._stats.setdefault("anytime_quality_history", [])
-                        history.append([self._stats["total_elapsed_time"], best_q])
-                    return
-                else:
-                    # Budget still available - keep searching
-                    # Reset the search by allowing dead-end exploration
-                    self._stats["iteration_count"] += 1  # Track that we tried to continue
-                    if self._stats.get("iteration_count", 0) % 100 == 0:
-                        print(f"[INFO] Search tree exhausted at iteration {self._stats['iteration_count']}, continuing with budget...")
-                    continue
+            # Now inspect the iteration status and handle transitions
             if status == "aborted":
+                # Interrupted due to stop or deadline
                 if self._stop_event.is_set():
                     self._status = RunStatus.ABORTED if self._abort_requested else RunStatus.STOPPED
-                    with self._lock:
-                        elapsed_this_run = (datetime.datetime.now(timezone.utc) - self._wall_begin).total_seconds()
-                        self._stats["total_elapsed_time"] = self._stats.get("total_elapsed_time", 0.0) + elapsed_this_run
-                        best_q = 0.0
-                        if self._sorted_patterns and self._sorted_patterns.heap:
-                            best_q = max(p[0] for p in self._sorted_patterns.heap)
-                        history = self._stats.setdefault("anytime_quality_history", [])
-                        history.append([self._stats["total_elapsed_time"], best_q])
+                    if self.snapshot_callback:
+                        self.snapshot_callback(self, "finished" if not self._abort_requested else "aborted")
                     return
                 else:
+                    # Deadline reached
+                    with self._lock:
+                        self._status = RunStatus.PAUSED
+                        self._pause_event.clear()
+                    print(f"[INFO] MCTS Execution Paused: Budget deadline reached during iteration. Awaiting instructions.")
+                    if self.snapshot_callback:
+                        self.snapshot_callback(self, "paused")
+                    continue
+
+            elif status == "finished":
+                # Tree search space fully exhausted.
+                print(f"[INFO] MCTS Execution Finished: search space fully exhausted at iteration {self._stats['iteration_count']}.")
+                with self._lock:
+                    self._status = RunStatus.STOPPED
+                    self._stop_event.set()
+                if self.snapshot_callback:
+                    self.snapshot_callback(self, "finished")
+                return
+
+            # Check if deadline reached post-iteration
+            if self._run_deadline is not None and time.time() >= self._run_deadline:
+                with self._lock:
                     self._status = RunStatus.PAUSED
                     self._pause_event.clear()
-                    with self._lock:
-                        elapsed_this_run = (datetime.datetime.now(timezone.utc) - self._wall_begin).total_seconds()
-                        self._stats["total_elapsed_time"] = self._stats.get("total_elapsed_time", 0.0) + elapsed_this_run
-                        best_q = 0.0
-                        if self._sorted_patterns and self._sorted_patterns.heap:
-                            best_q = max(p[0] for p in self._sorted_patterns.heap)
-                        history = self._stats.setdefault("anytime_quality_history", [])
-                        history.append([self._stats["total_elapsed_time"], best_q])
-                    continue
+                print(f"[INFO] MCTS Execution Paused: Budget deadline reached post-iteration. Awaiting instructions.")
+                if self.snapshot_callback:
+                    self.snapshot_callback(self, "paused")
+                continue
+
+            # Event-driven dispatch of running state
+            if self.snapshot_callback:
+                now_snap = time.time()
+                if now_snap - self._last_snapshot_time >= 2.0:
+                    self.snapshot_callback(self, "running")
+                    self._last_snapshot_time = now_snap
+            
+            time.sleep(0.001)
 
     @property
     def status(self) -> RunStatus:
+        if self._stop_event.is_set():
+            return RunStatus.ABORTED if self._abort_requested else RunStatus.STOPPED
+        if not self._pause_event.is_set():
+            return RunStatus.PAUSED
         return self._status
 
     @property
@@ -420,19 +458,17 @@ class MCTS:
 
     def apply_focus(self, params: Optional[Dict[str, Any]] = None, weights: Optional[Dict[str, Any]] = None) -> None:
         """Apply focus settings and AuditLens weights before a new budget run."""
-        reset_tree = False
         if params is not None:
             if "max_gap" in params and params["max_gap"] is not None:
                 try:
-                    new_max_gap = int(params["max_gap"])
-                    if getattr(conf, "MAX_GAP", None) != new_max_gap:
-                        conf.MAX_GAP = new_max_gap
-                        reset_tree = True
+                    conf.MAX_GAP = int(params["max_gap"])
+                    self.max_gap = int(params["max_gap"])
                 except Exception:
                     pass
             if "uct_factor" in params and params["uct_factor"] is not None:
                 try:
                     conf.UCT_FACTOR = float(params["uct_factor"])
+                    self.uct_factor = float(params["uct_factor"])
                 except Exception:
                     pass
             
@@ -444,52 +480,29 @@ class MCTS:
                 
             if new_gamma is not None:
                 try:
-                    if getattr(conf, "SUPPORT_PENALTY", None) != new_gamma:
-                        conf.SUPPORT_PENALTY = new_gamma
-                        reset_tree = True
+                    conf.SUPPORT_PENALTY = new_gamma
+                    self.support_penalty = new_gamma
                 except Exception:
                     pass
 
             if "min_support" in params and params["min_support"] is not None:
                 try:
-                    new_min_support = int(params["min_support"])
-                    if getattr(conf, "MIN_SUPPORT", None) != new_min_support:
-                        conf.MIN_SUPPORT = new_min_support
-                        reset_tree = True
+                    conf.MIN_SUPPORT = int(params["min_support"])
+                    self.min_support = int(params["min_support"])
                 except Exception:
                     pass
 
-        if reset_tree:
-            print("[INFO] Parameter change detected (max_gap, gamma, or min_support). Re-loading data and resetting MCTS tree...")
-            with self._lock:
-                from mctsextent.main import prepare_mcts_from_files, filter_empty_sequences
-                from seqscout.global_var import Model
-                
-                # Re-load data
-                self._data, self._target_class, self._log_losses, self.extra, self.encoding_to_items = (
-                    prepare_mcts_from_files(
-                        self.filename,
-                        max_gap=getattr(conf, "MAX_GAP", 1),
-                        support_penalty=getattr(conf, "SUPPORT_PENALTY", 0.0),
-                        sigmoid_offset=getattr(conf, "SIGMOID_OFFSET", 2.0),
-                        synth_patterns_path=self.synth_patterns_path,
-                    )
-                )
-                Model.set_data(filter_empty_sequences(self._data))
-                Model.set_target_class(self._target_class)
-
-                self._root_node = None
-                self._sorted_patterns = None
-                self._node_hashmap = None
-                self._item_log_losses = None
-                self._stats = None
-                self._status = RunStatus.IDLE
-                # Clear LRU caches
+            if "theta" in params and params["theta"] is not None:
                 try:
-                    from general.utils import compute_quality, compute_sequence_expand, compute_cumulative_probs
-                    compute_quality.cache_clear()
-                    compute_sequence_expand.cache_clear()
-                    compute_cumulative_probs.cache_clear()
+                    self.theta = float(params["theta"])
+                    conf.THETA = float(params["theta"])
+                except Exception:
+                    pass
+
+            if "max_iterations" in params and params["max_iterations"] is not None:
+                try:
+                    self.iterations_limit = int(params["max_iterations"])
+                    conf.ITERATIONS_NUMBER = int(params["max_iterations"])
                 except Exception:
                     pass
 
@@ -675,28 +688,37 @@ class MCTS:
         iterations: Optional[int] = None,
         budget: Optional[int] = None,
         time_budget: Optional[float] = None,
+        budget_chunk: Optional[float] = None,
     ) -> None:
         """
         Start or resume the background search.
-        If ``iterations`` is set, increases the iteration cap.
-        If ``budget`` is set, adds budget units that will be consumed one per iteration.
-        If ``time_budget`` is set, the worker will execute for that many seconds and pause.
+        If ``budget_chunk`` is set, it represents the slice of execution (in seconds or iterations)
+        that the algorithm is permitted to run now.
         """
-        if iterations is not None:
-            self.iterations_limit += int(iterations)
-        if budget is not None:
-            self.add_budget(int(budget))
+        effective_chunk = None
+        if budget_chunk is not None:
+            effective_chunk = float(budget_chunk)
+        elif time_budget is not None:
+            effective_chunk = float(time_budget)
+        elif budget is not None:
+            effective_chunk = float(budget)
+            
+        with self._lock:
+            if iterations is not None:
+                self.iterations_limit += int(iterations)
+            if budget is not None:
+                self.add_budget(int(budget))
 
-        # Always reset wall clock and deadline so elapsed tracking is per-cycle,
-        # not cumulative across budget cycles.
-        self._wall_begin = datetime.datetime.now(timezone.utc)
-        if time_budget is not None:
-            self.time_budget = float(time_budget)
-        self._run_deadline = time.time() + self.time_budget
+            self.budget_chunk = effective_chunk if effective_chunk is not None else 120.0
+            self.spent_budget = 0.0
+            self._chunk_start_time = time.time()
+            self._run_deadline = self._chunk_start_time + self.budget_chunk
+            self._wall_begin = datetime.datetime.now(timezone.utc)
+            self.time_budget = self.budget_chunk
 
-        self._abort_requested = False
-        self._stop_event.clear()
-        self._pause_event.set()
+            self._abort_requested = False
+            self._stop_event.clear()
+            self._pause_event.set()
 
         if self._thread is not None and self._thread.is_alive():
             self._status = RunStatus.RUNNING_MAIN
@@ -705,6 +727,60 @@ class MCTS:
         self._status = RunStatus.RUNNING_MAIN
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
+
+    def resume_with_budget(self, additional_budget: float, config: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Extends the MCTS time budget chunk, dynamically updates hyperparameters on resumption,
+        and resumes execution from the paused state.
+        """
+        with self._lock:
+            if config is not None:
+                self.apply_focus(params=config)
+                
+                log_parts = []
+                for k, v in config.items():
+                    log_parts.append(f"Hyperparameter '{k}' updated to {v}")
+                hyperparams_str = ". ".join(log_parts)
+                if hyperparams_str:
+                    hyperparams_str += ". "
+                print(f"[INFO] MCTS Resumed: Allocated budget of {additional_budget}. {hyperparams_str}Tree state preserved.")
+            else:
+                print(f"[INFO] MCTS Resumed: Allocated budget of {additional_budget}. Tree state preserved.")
+            
+            # Mathematical Invalidation Analysis:
+            # - theta: only used in post-search similarity filter. Does not invalidate tree structure.
+            # - uct_factor: only affects UCT weights on future choices. Pointers and structure remain intact.
+            # - min_support: node support count is unchanged. Nodes that don't satisfy new support limits
+            #   are ignored/penalized, keeping parent-child sequences structurally valid.
+            # - gamma/support_penalty: alters quality scores dynamically but sequence paths are valid.
+            # - max_gap: match evaluation uses new rules, existing parent-child sequence relations are preserved.
+            # Thus, the tree structure is kept alive and identical to the pause state.
+            
+            self._just_resumed = True
+            self._resume_config_snapshot = {
+                "theta": self.theta,
+                "max_gap": getattr(self, "max_gap", getattr(conf, "MAX_GAP", None)),
+                "support_penalty": getattr(self, "support_penalty", getattr(conf, "SUPPORT_PENALTY", None)),
+                "uct_factor": getattr(self, "uct_factor", getattr(conf, "UCT_FACTOR", None)),
+                "min_support": getattr(self, "min_support", getattr(conf, "MIN_SUPPORT", None)),
+                "iterations_limit": self.iterations_limit,
+            }
+
+            self.budget_chunk = float(additional_budget)
+            self.spent_budget = 0.0
+            self._chunk_start_time = time.time()
+            self._run_deadline = self._chunk_start_time + self.budget_chunk
+            self._wall_begin = datetime.datetime.now(timezone.utc)
+            self.time_budget = self.budget_chunk
+
+            self._abort_requested = False
+            self._stop_event.clear()
+            self._status = RunStatus.RUNNING_MAIN
+            self._pause_event.set()
+
+        if self._thread is None or not self._thread.is_alive():
+            self._thread = threading.Thread(target=self._worker, daemon=True)
+            self._thread.start()
 
     def wait_for_pause(self, poll_interval: float = 0.1, timeout: Optional[float] = None) -> RunStatus:
         """
@@ -897,35 +973,40 @@ class MCTS:
             if not self._sorted_patterns or not self._sorted_patterns.heap:
                 return []
             
+            heap_copy = list(self._sorted_patterns.heap)
+            data_copy = self._data
+            theta = self._sorted_patterns.theta
+            top_k = self.top_k
+            
             extra = dict(self.extra)
             extra["iteration_count"] = self._stats["iteration_count"] if self._stats else 0
             extra["phase_hook"] = self._set_phase_status
+            encoding_to_items_copy = self.encoding_to_items
+
+        try:
+            from general.priorityset import filter_results
+            results = filter_results(
+                heap_copy,
+                data_copy,
+                theta,
+                top_k,
+                extra=extra,
+                run_statistical_validation=False
+            )
+        except Exception as e:
+            print(f"[ERROR] failed filtering non-redundant patterns: {e}")
+            import heapq
+            results = heapq.nlargest(top_k, heap_copy)
             
-            prev_status = self._status
-            try:
-                from general.priorityset import filter_results
-                results = filter_results(
-                    self._sorted_patterns.heap,
-                    self._data,
-                    self._sorted_patterns.theta,
-                    self.top_k,
-                    extra=extra
-                )
-            except Exception as e:
-                print(f"[ERROR] failed filtering non-redundant patterns: {e}")
-                results = heapq.nlargest(self.top_k, self._sorted_patterns.heap)
-            finally:
-                self._status = prev_status
-                
-            out: List[PatternInfo] = []
-            for item in results:
-                if len(item) == 5:
-                    quality, seq, extend, pattern_delta, corr_p = item
-                else:
-                    quality, seq, extend, pattern_delta = item
-                    corr_p = 0.0
-                out.append(PatternInfo(quality, seq, extend, pattern_delta, self.encoding_to_items, p_value_bh=corr_p))
-            return out
+        out: List[PatternInfo] = []
+        for item in results:
+            if len(item) == 5:
+                quality, seq, extend, pattern_delta, corr_p = item
+            else:
+                quality, seq, extend, pattern_delta = item
+                corr_p = 0.0
+            out.append(PatternInfo(quality, seq, extend, pattern_delta, encoding_to_items_copy, p_value_bh=corr_p))
+        return out
 
     def save_state(self, path: Optional[str] = None) -> str:
         """Save tree state to disk for resumption."""

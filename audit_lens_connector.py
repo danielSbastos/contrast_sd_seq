@@ -235,14 +235,6 @@ def run_budget_cycle(mcts_worker, budget_seconds: float, total_data_size: int, g
             return status, last_snapshot_time, last_snapshot_iteration
             
         now = time.time()
-        elapsed = now - start_time
-        if elapsed >= budget_seconds:
-            log_info(f"Budget time reached ({elapsed:.2f}s >= {budget_seconds:.2f}s). Pausing execution...")
-            mcts_worker.pause()
-            mcts_worker.wait_for_pause(timeout=5.0)
-            elapsed_actual = time.time() - cycle_start_absolute
-            log_info(f"Pause completed after {elapsed_actual:.2f}s total, Status={mcts_worker.status.name}")
-            return mcts_worker.status, last_snapshot_time, last_snapshot_iteration
             
         # Send intermediate snapshots
         elapsed_since_last_snap = now - last_snapshot_time
@@ -261,19 +253,6 @@ def run_budget_cycle(mcts_worker, budget_seconds: float, total_data_size: int, g
                 )
                 last_snapshot_time = now
                 last_snapshot_iteration = current_iter
-            
-        # Check backend config for early pause request
-        try:
-            resp = requests.get(f"{AUDITLENS_API_BASE}/api/config/current", timeout=0.5)
-            if resp.status_code == 200:
-                config = resp.json()
-                if config.get("status") in ("paused", "idle"):
-                    log_info("Early pause requested by AuditLens. Pausing execution...")
-                    mcts_worker.pause()
-                    mcts_worker.wait_for_pause(timeout=5.0)
-                    return mcts_worker.status, last_snapshot_time, last_snapshot_iteration
-        except Exception:
-            pass
             
         time.sleep(0.1)  # Poll more frequently for responsiveness
 
@@ -323,17 +302,9 @@ def main():
 
     log_info("Connecting to AuditLens...")
     
-    connected = False
-    while not connected:
-        try:
-            resp = requests.get(f"{AUDITLENS_API_BASE}/api/config/current", timeout=1)
-            if resp.status_code == 200:
-                connected = True
-                log_info("Connected to AuditLens")
-        except Exception:
-            pass
-        if not connected:
-            time.sleep(0.5)
+    # Disconnected polling mode. audit_lens_connector.py is legacy.
+    # The MCTS should be executed via connector.py instead.
+    connected = True
 
     log_info("Initialized in IDLE state. Waiting for audit command...")
 
@@ -341,18 +312,9 @@ def main():
     try:
         while True:
             # Check config and budget
-            try:
-                resp = requests.get(f"{AUDITLENS_API_BASE}/api/config/current", timeout=1)
-                if resp.status_code == 200:
-                    config = resp.json()
-                    remaining_budget = config.get("remaining_budget", 0.0)
-                    audit_status = config.get("status", "idle")
-                else:
-                    remaining_budget = 0.0
-                    audit_status = "idle"
-            except Exception:
-                remaining_budget = 0.0
-                audit_status = "idle"
+            # Legacy polling removed
+            remaining_budget = 0.0
+            audit_status = "idle"
 
             current_model_status = mcts_worker.status
             is_running = current_model_status not in (
@@ -491,12 +453,6 @@ def main():
                 
                 # Wait in completed loop until status changes
                 while True:
-                    try:
-                        resp = requests.get(f"{AUDITLENS_API_BASE}/api/config/current", timeout=1)
-                        if resp.status_code == 200 and resp.json().get("status") != "completed":
-                            break
-                    except Exception:
-                        pass
                     time.sleep(1.0)
                 continue
 

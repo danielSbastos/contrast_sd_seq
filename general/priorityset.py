@@ -78,7 +78,7 @@ def show_results(results, pattern_max_len, extra):
 
 
 def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
-                   pattern_max_len=float('inf'), extra={}):
+                   pattern_max_len=float('inf'), extra={}, run_statistical_validation=True):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     results_list = list(results)
@@ -132,17 +132,21 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
         hook('SIMILARITY_FILTER')
 
     print(f"================\nFILTERING BY SIMILARITY\n================")
+    # Pre-convert extends to sets to avoid redundant set conversions in nested loop
+    results_sets = [set(r[2]) for r in results_list]
+    
     non_redundant_patterns = []
-    for _, result in enumerate(results_list):
-        print(f"Processing pattern {_} of {len(results_list)}")
+    non_redundant_sets = []
+    
+    for idx, result in enumerate(results_list):
+        print(f"Processing pattern {idx} of {len(results_list)}")
         similar = False
-        max_jaccard = 0.0
+        set1 = results_sets[idx]
 
-        for _, filtered_element in enumerate(non_redundant_patterns):
-            jaccard_sim = jaccard_measure_misere(result[2], filtered_element[2])
-
-            if jaccard_sim > max_jaccard:
-                max_jaccard = jaccard_sim
+        for filtered_set in non_redundant_sets:
+            intersection = len(set1.intersection(filtered_set))
+            union = len(set1.union(filtered_set))
+            jaccard_sim = intersection / union if union > 0 else 0.0
 
             if jaccard_sim > theta:
                 similar = True
@@ -150,6 +154,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
         if not similar:
             non_redundant_patterns.append(result)
+            non_redundant_sets.append(set1)
 
         if len(non_redundant_patterns) == 100:
             break
@@ -160,27 +165,32 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     if hook:
         hook('STATISTICAL_VALIDATION')
 
-    print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
-    significant_patterns, significance_info, p_values_map = filter_by_significance(
-        non_redundant_patterns[:k_prime],
-        validation_data_path=validation_data_path,
-        validation_target_path=validation_target_path,
-        train_data_path=train_data_path,
-        train_target_path=train_target_path,
-        items_to_encoding=items_to_encoding,
-        alpha=alpha,
-        n_subgroups=1000,
-    )
+    if run_statistical_validation:
+        print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
+        significant_patterns, significance_info, p_values_map = filter_by_significance(
+            non_redundant_patterns[:k_prime],
+            validation_data_path=validation_data_path,
+            validation_target_path=validation_target_path,
+            train_data_path=train_data_path,
+            train_target_path=train_target_path,
+            items_to_encoding=items_to_encoding,
+            alpha=alpha,
+            n_subgroups=1000,
+        )
 
-    print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
-    decode_results(significant_patterns, items_to_encoding)
+        print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
+        decode_results(significant_patterns, items_to_encoding)
 
-    save_patterns_after_stats_validation(significance_info, extra['dataset_name'], timestamp, extra['iteration_count'])
+        save_patterns_after_stats_validation(significance_info, extra['dataset_name'], timestamp, extra['iteration_count'])
 
-    final_results = []
-    for pattern in non_redundant_patterns[:k]:
-        corr_p = p_values_map.get(pattern[1], 1.0)
-        final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], corr_p))
+        final_results = []
+        for pattern in non_redundant_patterns[:k]:
+            corr_p = p_values_map.get(pattern[1], 1.0)
+            final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], corr_p))
+    else:
+        final_results = []
+        for pattern in non_redundant_patterns[:k]:
+            final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], 0.0))
 
     return final_results
 
