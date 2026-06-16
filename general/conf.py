@@ -8,6 +8,7 @@ MIN_INTENT_LEN = 10  # minimum intent/pattern length; keep trying other sequence
 LOG_LOSS_THRESHOLD = 0  # only expand sequences with log_loss >= threshold
 MAX_GAP = 1
 SUPPORT_PENALTY = 0.0
+UCT_FACTOR = 0.5
 SIGMOID_OFFSET = 2
 # Do not change this value if you do not know what your are doing
 TIME_BUDGET_XP = 2**30

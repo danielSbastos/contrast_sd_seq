@@ -2,34 +2,19 @@ import heapq
 import os
 import numpy as np
 from datetime import datetime
-from general.utils import decode_sequence
+from general.utils import decode_sequence, compute_subgroup_error_stats
 import general.conf as conf
 
 from general.utils import is_subsequence, sequence_mutable_to_immutable
 from statistical_validation import filter_by_significance
 from save_results import save_all_patterns, save_patterns_after_similarity_filter, save_patterns_after_stats_validation, save_iteration_metrics
-from seqscout.global_var import Model
 
 
-def jaccard_measure_misere(sequence1, sequence2, data):
-    intersection = 0
-    union = 0
-    for sequence in data:
-        sequence = sequence_mutable_to_immutable(sequence)
-        seq1 = False
-        seq2 = False
-
-        if is_subsequence(sequence1, sequence, max_gap=conf.MAX_GAP):
-            seq1 = True
-        if is_subsequence(sequence2, sequence, max_gap=conf.MAX_GAP):
-            seq2 = True
-
-        if seq1 or seq2:
-            union += 1
-
-        if seq1 and seq2:
-            intersection += 1
-
+def jaccard_measure_misere(extend1, extend2):
+    set1 = set(extend1)
+    set2 = set(extend2)
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
     try:
         return intersection / union
     except ZeroDivisionError:
@@ -40,36 +25,18 @@ def decode_results(results_list, items_to_encoding):
     encoding_to_items = {v: k for k, v in items_to_encoding.items()} if items_to_encoding else None
     decoded_results = []
 
-    target_class = Model.get_target_class()
-    soft_errors = Model.get_soft_errors()
-
     for idx, result in enumerate(results_list):
-        quality, sequence, extend, pattern_delta = result
+        if len(result) == 5:
+            quality, sequence, extend, pattern_delta, corr_p = result
+        else:
+            quality, sequence, extend, pattern_delta = result
+            corr_p = None
         pattern_display = ''
         decoded_seq = decode_sequence(sequence, encoding_to_items)
         for itemset in decoded_seq:
             pattern_display += repr(set(itemset))
 
-        error_class_0 = None
-        error_class_1 = None
-        std_class_0 = None
-        std_class_1 = None
-        size_class_0 = 0
-        size_class_1 = 0
-        
-        if target_class is not None and soft_errors is not None and len(extend) > 0:
-            extend_arr = np.array(extend, dtype=int)
-            y_true = target_class[:, 0]
-            
-            subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
-            subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
-            
-            error_class_0 = subgroup_class_0.mean() if len(subgroup_class_0) > 0 else 0.0
-            error_class_1 = subgroup_class_1.mean() if len(subgroup_class_1) > 0 else 0.0
-            std_class_0 = float(subgroup_class_0.std()) if len(subgroup_class_0) >= 2 else 0.0
-            std_class_1 = float(subgroup_class_1.std()) if len(subgroup_class_1) >= 2 else 0.0
-            size_class_0 = len(subgroup_class_0)
-            size_class_1 = len(subgroup_class_1)
+        sg = compute_subgroup_error_stats(extend)
 
         result_dict = { 
             'pattern': decoded_seq, 
@@ -77,21 +44,25 @@ def decode_results(results_list, items_to_encoding):
             'support': len(extend), 
             'pattern_delta': pattern_delta 
         }
+        if corr_p is not None:
+            result_dict['p_value_bh'] = corr_p
         
-        if error_class_0 is not None and error_class_1 is not None:
-            result_dict['error_class_0'] = error_class_0
-            result_dict['error_class_1'] = error_class_1
-            result_dict['size_class_0'] = size_class_0
-            result_dict['size_class_1'] = size_class_1
-            result_dict['std_class_0'] = std_class_0
-            result_dict['std_class_1'] = std_class_1
+        if sg is not None:
+            result_dict['error_class_0'] = sg['error_class_0']
+            result_dict['error_class_1'] = sg['error_class_1']
+            result_dict['size_class_0'] = sg['size_class_0']
+            result_dict['size_class_1'] = sg['size_class_1']
+            result_dict['std_class_0'] = sg['std_class_0']
+            result_dict['std_class_1'] = sg['std_class_1']
         
         decoded_results.append(result_dict)
         
-        if error_class_0 is not None and error_class_1 is not None:
-            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Class0_Error={error_class_0:.4f} (n={size_class_0}), Class1_Error={error_class_1:.4f} (n={size_class_1}), Class0_Std={std_class_0:.4f}, Class1_Std={std_class_1:.4f}, Pattern={pattern_display}")
+        if sg is not None:
+            p_str = f", p_val={corr_p:.6f}" if corr_p is not None else ""
+            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}{p_str}, Class0_Error={sg['error_class_0']:.4f} (n={sg['size_class_0']}), Class1_Error={sg['error_class_1']:.4f} (n={sg['size_class_1']}), Class0_Std={sg['std_class_0']:.4f}, Class1_Std={sg['std_class_1']:.4f}, Pattern={pattern_display}")
         else:
-            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}, Pattern={pattern_display}")
+            p_str = f", p_val={corr_p:.6f}" if corr_p is not None else ""
+            print(f"  Pattern {idx}: Quality={quality:.4f}, Pattern_Delta={pattern_delta:.4f}, Support={len(extend)}{p_str}, Pattern={pattern_display}")
     print(f"{'='*80}\n")
     return decoded_results
 
@@ -107,7 +78,7 @@ def show_results(results, pattern_max_len, extra):
 
 
 def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
-                   pattern_max_len=float('inf'), extra={}):
+                   pattern_max_len=float('inf'), extra={}, run_statistical_validation=True):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     results_list = list(results)
@@ -156,18 +127,26 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
             extra['iteration_count'],
         )
 
+    hook = extra.get('phase_hook')
+    if hook:
+        hook('SIMILARITY_FILTER')
+
     print(f"================\nFILTERING BY SIMILARITY\n================")
+    # Pre-convert extends to sets to avoid redundant set conversions in nested loop
+    results_sets = [set(r[2]) for r in results_list]
+    
     non_redundant_patterns = []
-    for _, result in enumerate(results_list):
-        print(f"Processing pattern {_} of {len(results_list)}")
+    non_redundant_sets = []
+    
+    for idx, result in enumerate(results_list):
+        print(f"Processing pattern {idx} of {len(results_list)}")
         similar = False
-        max_jaccard = 0.0
+        set1 = results_sets[idx]
 
-        for _, filtered_element in enumerate(non_redundant_patterns):
-            jaccard_sim = jaccard_measure_misere(result[1], filtered_element[1], data)
-
-            if jaccard_sim > max_jaccard:
-                max_jaccard = jaccard_sim
+        for filtered_set in non_redundant_sets:
+            intersection = len(set1.intersection(filtered_set))
+            union = len(set1.union(filtered_set))
+            jaccard_sim = intersection / union if union > 0 else 0.0
 
             if jaccard_sim > theta:
                 similar = True
@@ -175,6 +154,7 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
 
         if not similar:
             non_redundant_patterns.append(result)
+            non_redundant_sets.append(set1)
 
         if len(non_redundant_patterns) == 100:
             break
@@ -182,24 +162,37 @@ def filter_results(results, data, theta, k, k_prime=100, alpha=0.05,
     d_results = decode_results(non_redundant_patterns, items_to_encoding)
     save_patterns_after_similarity_filter(d_results, theta, extra['dataset_name'], timestamp, extra['iteration_count'])
 
-    print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
-    significant_patterns, significance_info = filter_by_significance(
-        non_redundant_patterns[:k_prime],
-        validation_data_path=validation_data_path,
-        validation_target_path=validation_target_path,
-        train_data_path=train_data_path,
-        train_target_path=train_target_path,
-        items_to_encoding=items_to_encoding,
-        alpha=alpha,
-        n_subgroups=1000,
-    )
+    if hook:
+        hook('STATISTICAL_VALIDATION')
 
-    print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
-    decode_results(significant_patterns, items_to_encoding)
+    if run_statistical_validation:
+        print(f"================\nAPPLYING STATISTICAL VALIDATION\n================")
+        significant_patterns, significance_info, p_values_map = filter_by_significance(
+            non_redundant_patterns[:k_prime],
+            validation_data_path=validation_data_path,
+            validation_target_path=validation_target_path,
+            train_data_path=train_data_path,
+            train_target_path=train_target_path,
+            items_to_encoding=items_to_encoding,
+            alpha=alpha,
+            n_subgroups=1000,
+        )
 
-    save_patterns_after_stats_validation(significance_info, extra['dataset_name'], timestamp, extra['iteration_count'])
+        print(f"================\nPATTERNS AFTER STATISTICAL VALIDATION\n================")
+        decode_results(significant_patterns, items_to_encoding)
 
-    return significant_patterns[:k]
+        save_patterns_after_stats_validation(significance_info, extra['dataset_name'], timestamp, extra['iteration_count'])
+
+        final_results = []
+        for pattern in non_redundant_patterns[:k]:
+            corr_p = p_values_map.get(pattern[1], 1.0)
+            final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], corr_p))
+    else:
+        final_results = []
+        for pattern in non_redundant_patterns[:k]:
+            final_results.append((pattern[0], pattern[1], pattern[2], pattern[3], 0.0))
+
+    return final_results
 
 
 class PrioritySet(object):
@@ -218,8 +211,19 @@ class PrioritySet(object):
 
     def add(self, sequence, quality, extend, pattern_delta):
         if sequence not in self.set:
-            heapq.heappush(self.heap, (quality, sequence, extend, pattern_delta))
-            self.set.add(sequence)
+            if type(extend).__name__ == 'DeletedExtend':
+                from general.utils import compute_quality
+                _, _, extend, _, _ = compute_quality(sequence)
+
+            limit = max(500, self.k * 5)
+            if len(self.heap) < limit:
+                heapq.heappush(self.heap, (quality, sequence, extend, pattern_delta))
+                self.set.add(sequence)
+            else:
+                if quality > self.heap[0][0]:
+                    removed = heapq.heappushpop(self.heap, (quality, sequence, extend, pattern_delta))
+                    self.set.remove(removed[1])
+                    self.set.add(sequence)
             self.proposal_count[sequence] = 1
         else:
             self.redundant_add_count += 1

@@ -247,6 +247,30 @@ def decode_sequences(results, encoding_to_item):
     return return_results
 
 
+def compute_subgroup_error_stats(extend):
+    """
+    Per-class soft-error means, stds, and subgroup sizes for coverage indices ``extend``.
+    Same definition as ``decode_results`` in ``general.priorityset`` (``y_true`` 0 vs 1 on
+    ``target_class[:, 0]``). Returns ``None`` if metrics cannot be computed.
+    """
+    target_class = Model.get_target_class()
+    soft_errors = Model.get_soft_errors()
+    if target_class is None or soft_errors is None or len(extend) == 0:
+        return None
+    extend_arr = np.array(extend, dtype=int)
+    y_true = target_class[:, 0]
+    subgroup_class_0 = soft_errors[extend_arr][y_true[extend_arr] == 0]
+    subgroup_class_1 = soft_errors[extend_arr][y_true[extend_arr] == 1]
+    return {
+        "error_class_0": float(subgroup_class_0.mean()) if len(subgroup_class_0) > 0 else 0.0,
+        "error_class_1": float(subgroup_class_1.mean()) if len(subgroup_class_1) > 0 else 0.0,
+        "std_class_0": float(subgroup_class_0.std()) if len(subgroup_class_0) >= 2 else 0.0,
+        "std_class_1": float(subgroup_class_1.std()) if len(subgroup_class_1) >= 2 else 0.0,
+        "size_class_0": len(subgroup_class_0),
+        "size_class_1": len(subgroup_class_1),
+    }
+
+
 def encode_items(items):
     item_to_encoding = {}
     encoding_to_item = {}
@@ -274,6 +298,10 @@ def extract_items(data):
 
 
 def print_results(results):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -288,6 +316,10 @@ def print_results(results):
 
 
 def print_results_retails(results, items_dict):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -306,6 +338,10 @@ def print_results_retails(results, items_dict):
 
 
 def print_results_mcts(results, encoding_to_items):
+    if len(results) == 0:
+        print('No results to display.')
+        return
+
     sum_result = 0
     for result in results:
         pattern_display = ''
@@ -334,6 +370,9 @@ def print_results_decode(results, encoding_to_items):
 
 
 def average_results(results):
+    if len(results) == 0:
+        return np.nan
+
     sum_result = 0
     for result in results:
         sum_result += result[0]
@@ -493,11 +532,16 @@ def compute_quality(subsequence):
     support = 0
     extend = []
 
-    for i, sequence in enumerate(data):
+    from seqscout.global_var import get_candidate_sequence_indices
+    candidates = get_candidate_sequence_indices(subsequence, is_validation=False)
+
+    for i in candidates:
+        sequence = data[i]
         if is_subsequence(subsequence, sequence, max_gap=max_gap):
             support += 1
             extend.append(i)
 
+    extend = np.array(extend, dtype=np.uint32)
     quality, pattern_delta, size_class_0, size_class_1 = get_quality(support, data, extend)
     return quality, pattern_delta, extend, size_class_0, size_class_1
 
@@ -505,10 +549,8 @@ def compute_quality(subsequence):
 @functools.lru_cache(maxsize=1000)
 def compute_sequence_expand(intent, extend):
     data = Model.get_data()
-    if intent is None:
-        return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend])
-    max_gap = conf.MAX_GAP
-    return tuple([[i, seq] for i, seq in enumerate(data) if i not in extend and not is_subsequence(intent, seq, max_gap=max_gap)])
+    extend_set = set(extend)
+    return tuple([i for i in range(len(data)) if i not in extend_set])
 
 import seqscout.global_var
 

@@ -8,5 +8,10 @@
     "element": "{E} {F} {G} {H} {I}",
     "quantity": 50,
     "target_auc": 0.65
+  },
+  {
+    "element": "{X, Y} {Z}",
+    "quantity": 500,
+    "target_auc": 0.79
   }
 ]

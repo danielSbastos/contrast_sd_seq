@@ -54,7 +54,9 @@ def calculate_p_value(result, validation_target_class, validation_data, validati
                      n_subgroups=1000, pattern_idx=None, train_target_class=None, train_data=None):
     intent = result[1]
 
-    validation_extend = [i for i, seq in enumerate(validation_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
+    from seqscout.global_var import get_candidate_sequence_indices
+    val_candidates = get_candidate_sequence_indices(intent, is_validation=True)
+    validation_extend = [i for i in val_candidates if is_subsequence(intent, validation_data[i], max_gap=conf.MAX_GAP)]
     support = len(validation_extend)
     class_balance = calculate_class_balance(validation_target_class, validation_extend)
 
@@ -76,9 +78,11 @@ def calculate_p_value(result, validation_target_class, validation_data, validati
 
     print(f"    Support={support}, Class balance={dict(class_balance)}. s_g*d_g={obs_sg_dg:.4f}, p-value={p_value:.6f}")
 
-    train_extend = [i for i, seq in enumerate(train_data) if is_subsequence(intent, seq, max_gap=conf.MAX_GAP)]
+    train_candidates = get_candidate_sequence_indices(intent, is_validation=False)
+    train_extend = [i for i in train_candidates if is_subsequence(intent, train_data[i], max_gap=conf.MAX_GAP)]
     class_balance_train = calculate_class_balance(train_target_class, train_extend)
     return p_value, obs_sg_dg, class_balance_train
+
 
 def filter_by_significance(
     candidate_patterns,
@@ -91,16 +95,33 @@ def filter_by_significance(
     train_target_path=None
 ):
     start_time = time.time()
-    validation_data_raw = read_data_kosarak(validation_data_path)
-    validation_data = filter_empty_sequences(encode_data(validation_data_raw, items_to_encoding))
-    validation_target_class = pd.read_csv(validation_target_path)[['y_true', 'confidence']].values
+    
+    # Load or reuse validation data
+    if Model.get_validation_data() is not None:
+        validation_data = Model.get_validation_data()
+        validation_target_class = Model.get_validation_target_class()
+    else:
+        if validation_data_path == train_data_path:
+            validation_data = Model.get_data()
+            validation_target_class = Model.get_target_class()
+        else:
+            validation_data_raw = read_data_kosarak(validation_data_path)
+            validation_data = filter_empty_sequences(encode_data(validation_data_raw, items_to_encoding))
+            validation_target_class = pd.read_csv(validation_target_path)[['y_true', 'confidence']].values
+        Model.set_validation_data(validation_data)
+        Model.set_validation_target_class(validation_target_class)
+        
     validation_soft_errors = _validation_soft_errors(validation_target_class)
-    Model.set_validation_data(validation_data)
-    Model.set_validation_target_class(validation_target_class)
 
-    train_data_raw = read_data_kosarak(train_data_path)
-    train_data = filter_empty_sequences(encode_data(train_data_raw, items_to_encoding))
-    train_target_class = pd.read_csv(train_target_path)[['y_true', 'confidence']].values
+    # Load or reuse train data
+    train_data = Model.get_data()
+    train_target_class = Model.get_target_class()
+    if train_data is None:
+        train_data_raw = read_data_kosarak(train_data_path)
+        train_data = filter_empty_sequences(encode_data(train_data_raw, items_to_encoding))
+        train_target_class = pd.read_csv(train_target_path)[['y_true', 'confidence']].values
+        Model.set_data(train_data)
+        Model.set_target_class(train_target_class)
 
     p_values, records = [], []
     valid_count = 0
@@ -127,7 +148,7 @@ def filter_by_significance(
         records.append((idx, pattern, p, diff, class_balance))
 
     if not p_values:
-        return [], {}
+        return [], {}, {}
 
     print(f"\n Applying FDR correction")
     rejected, corrected_p, _, _ = multipletests(p_values, alpha=alpha, method='fdr_bh')
@@ -135,7 +156,9 @@ def filter_by_significance(
     encoding_to_items = {v: k for k, v in items_to_encoding.items()}
     info = []
     significant = []
+    p_values_map = {}
     for (idx, pattern, raw_p, diff, class_balance), is_sig, corr_p in zip(records, rejected, corrected_p):
+        p_values_map[pattern[1]] = float(corr_p)
         info.append({
             'pattern': decode_sequence(pattern[1], encoding_to_items),
             'quality': pattern[0],
@@ -148,7 +171,7 @@ def filter_by_significance(
         })
         if is_sig:
             print(f"  Pattern {idx}: s_g*d_g={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> SIGNIFICANT")
-            significant.append(pattern)
+            significant.append((pattern[0], pattern[1], pattern[2], pattern[3], corr_p))
         else:
             print(f"  Pattern {idx}: s_g*d_g={diff:.4f}, p={raw_p:.6f}, adj_p={corr_p:.6f} --> NOT SIGNIFICANT")
 
@@ -156,4 +179,4 @@ def filter_by_significance(
     print(f"\n Found {len(significant)} significant patterns out of {valid_count} tested.")
     print(f"  Validation completed in {elapsed:.2f} seconds.")
 
-    return significant, info
+    return significant, info, p_values_map
